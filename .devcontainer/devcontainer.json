@@ -1,0 +1,58 @@
+{
+  "name": "Concord Smart Office DevPod",
+  "image": "mcr.microsoft.com/devcontainers/base:debian12",
+
+  "runArgs": [
+    "--privileged",
+    "--memory=8g",
+    "--memory-swap=12g",
+    "--memory-reservation=4g",
+    "--cpus=2"
+  ],
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ],
+
+  "containerEnv": {
+    "CLAUDE_FLOW_MAX_AGENTS": "5",
+    "AGENT_MEMORY_LIMIT_MB": "512",
+    "MEMORY_PRESSURE_THRESHOLD": "0.85"
+  },
+
+  "remoteEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "github.copilot",
+        "github.copilot-chat",
+        "suzuki0430.ccusage-vscode",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.formatOnSave": true
+      }
+    }
+  },
+
+  "postCreateCommand": "bash .devcontainer/setup-memory.sh && bash .devcontainer/install-tools.sh",
+
+  "remoteUser": "vscode"
+}

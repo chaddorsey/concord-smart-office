@@ -1,0 +1,59 @@
+# Environment and secrets - NEVER COMMIT
+.env
+.env.local
+.env.*.local
+.env.production
+.env.production.local
+
+# Credentials
+credentials.json
+*.pem
+*.key
+secrets/
+
+# Claude and AI tool caches
+.claude/
+.claude-flow/
+.anthropic/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.eggs/
+
+# Logs
+logs/
+*.log
+/tmp/memory-monitor.log
+
+# IDE
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.tgz
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Agentic QE local data
+.agentic-qe/
