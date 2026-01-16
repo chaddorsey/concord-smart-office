@@ -57,3 +57,21 @@ coverage/
 
 # Agentic QE local data
 .agentic-qe/
+
+# Home Assistant
+homeassistant/secrets.yaml
+homeassistant/.storage/
+homeassistant/.cloud/
+homeassistant/home-assistant_v2.db
+homeassistant/home-assistant_v2.db-shm
+homeassistant/home-assistant_v2.db-wal
+homeassistant/home-assistant.log*
+homeassistant/tts/
+homeassistant/deps/
+homeassistant/__pycache__/
+homeassistant/blueprints/
+homeassistant/themes/
+
+# Docker volumes
+docker/mosquitto/data/
+docker/mosquitto/log/

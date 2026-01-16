@@ -1,0 +1,61 @@
+# Concord Smart Office - Home Assistant Configuration
+
+homeassistant:
+  name: Concord Smart Office
+  unit_system: imperial
+  time_zone: America/New_York
+  packages: !include_dir_named packages/
+
+# Enable frontend
+frontend:
+  themes: !include_dir_merge_named themes/
+
+# Enable API for PWA integration
+api:
+
+# Enable WebSocket for real-time updates
+websocket_api:
+
+# HTTP configuration
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 127.0.0.1
+    - ::1
+
+# Database recorder
+recorder:
+  purge_keep_days: 30
+  commit_interval: 1
+
+# Logbook for tracking events
+logbook:
+
+# History for graphs
+history:
+
+# Enable mobile app support
+mobile_app:
+
+# Input helpers for presence system
+input_boolean:
+
+input_select:
+
+input_text:
+
+input_number:
+
+input_datetime:
+
+# Include automations and scripts
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# Logger configuration
+logger:
+  default: info
+  logs:
+    custom_components.spotifyplus: debug
+    custom_components.oasis_mini: debug

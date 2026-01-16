@@ -1,0 +1,129 @@
+# Concord Smart Office - Entertainment Systems Package
+# Spotify, Photo Frames, Oasis Sand Table
+
+# Input helpers for voting system
+input_number:
+  # Spotify voting
+  spotify_skip_votes:
+    name: "Spotify Skip Votes"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    icon: mdi:vote
+
+  spotify_votes_needed:
+    name: "Spotify Votes Needed to Skip"
+    min: 1
+    max: 10
+    step: 1
+    initial: 3
+    icon: mdi:vote-outline
+
+  # Photo frame voting threshold
+  photo_upvote_threshold:
+    name: "Photo Upvote Threshold"
+    min: 1
+    max: 10
+    step: 1
+    initial: 3
+
+input_select:
+  # Active photo frame playlist
+  active_photo_playlist:
+    name: "Active Photo Playlist"
+    options:
+      - "Default"
+      - "Nature"
+      - "Art"
+      - "Team Photos"
+      - "Custom"
+    initial: "Default"
+    icon: mdi:image-multiple
+
+  # Oasis sand table pattern
+  oasis_current_pattern:
+    name: "Oasis Current Pattern"
+    options:
+      - "Waiting for selection"
+    initial: "Waiting for selection"
+    icon: mdi:blur
+
+# Template sensors
+template:
+  - sensor:
+      - name: "Spotify Vote Progress"
+        state: >
+          {{ (states('input_number.spotify_skip_votes') | int) }} / {{ (states('input_number.spotify_votes_needed') | int) }}
+        attributes:
+          percentage: >
+            {{ ((states('input_number.spotify_skip_votes') | int) / (states('input_number.spotify_votes_needed') | int) * 100) | round(0) }}
+
+# Automations
+automation:
+  - id: spotify_skip_vote_threshold
+    alias: "Spotify - Skip on Vote Threshold"
+    trigger:
+      - platform: template
+        value_template: >
+          {{ states('input_number.spotify_skip_votes') | int >= states('input_number.spotify_votes_needed') | int }}
+    action:
+      # Skip to next track via SpotifyPlus
+      - service: spotifyplus.player_media_skip_next
+        target:
+          entity_id: media_player.spotifyplus_office
+      # Reset vote counter
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.spotify_skip_votes
+        data:
+          value: 0
+      - service: notify.persistent_notification
+        data:
+          message: "Track skipped by vote!"
+          title: "Spotify"
+
+  - id: spotify_reset_votes_on_track_change
+    alias: "Spotify - Reset Votes on Track Change"
+    trigger:
+      - platform: state
+        entity_id: media_player.spotifyplus_office
+        attribute: media_title
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.spotify_skip_votes
+        data:
+          value: 0
+
+# Scripts
+script:
+  vote_skip_spotify:
+    alias: "Vote to Skip Current Spotify Track"
+    sequence:
+      - service: input_number.increment
+        target:
+          entity_id: input_number.spotify_skip_votes
+
+  add_photo_to_playlist:
+    alias: "Add Photo to Playlist"
+    fields:
+      photo_url:
+        description: "URL of the photo to add"
+      playlist:
+        description: "Target playlist name"
+    sequence:
+      - event: photo_added_to_playlist
+        event_data:
+          photo_url: "{{ photo_url }}"
+          playlist: "{{ playlist }}"
+
+  vote_oasis_pattern:
+    alias: "Vote for Oasis Pattern"
+    fields:
+      pattern_id:
+        description: "Pattern identifier"
+    sequence:
+      - event: oasis_pattern_vote
+        event_data:
+          pattern_id: "{{ pattern_id }}"
