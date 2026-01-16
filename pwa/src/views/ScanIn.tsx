@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth, usePresence } from '../stores'
+import { nfcService, getNFCStatus, type NFCStatus, type NFCScanResult } from '../services/nfcService'
 import BottomNav from '../components/BottomNav'
 
 type ScanMode = 'qr' | 'nfc' | 'manual'
@@ -15,6 +16,8 @@ export default function ScanIn() {
   const [scanStatus, setScanStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [selectedStaffId, setSelectedStaffId] = useState<string>(currentUserId || '')
   const [error, setError] = useState<string | null>(null)
+  const [nfcStatus, setNfcStatus] = useState<NFCStatus>(() => getNFCStatus())
+  const stopNfcScanRef = useRef<(() => void) | null>(null)
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -30,9 +33,38 @@ export default function ScanIn() {
     }
   }, [currentUserId, selectedStaffId])
 
-  const handleScan = async () => {
-    if (!selectedStaffId) {
+  // Cleanup NFC scanning on unmount or mode change
+  useEffect(() => {
+    return () => {
+      if (stopNfcScanRef.current) {
+        stopNfcScanRef.current()
+        stopNfcScanRef.current = null
+      }
+    }
+  }, [])
+
+  // Stop NFC scan when switching away from NFC mode
+  useEffect(() => {
+    if (scanMode !== 'nfc' && stopNfcScanRef.current) {
+      stopNfcScanRef.current()
+      stopNfcScanRef.current = null
+      setIsScanning(false)
+    }
+  }, [scanMode])
+
+  const handleScan = useCallback(async (staffIdOverride?: string) => {
+    const targetStaffId = staffIdOverride || selectedStaffId
+
+    if (!targetStaffId) {
       setError('Please select a staff member')
+      return
+    }
+
+    // Verify this staff member exists
+    const staffMember = staff.find(s => s.id === targetStaffId)
+    if (!staffMember) {
+      setError(`Unknown staff ID: ${targetStaffId}`)
+      setScanStatus('error')
       return
     }
 
@@ -42,19 +74,25 @@ export default function ScanIn() {
 
     try {
       // Set this as the current user
-      setCurrentUser(selectedStaffId)
+      setCurrentUser(targetStaffId)
+      setSelectedStaffId(targetStaffId)
 
       // Determine if scanning in or out
-      const staffMember = staff.find(s => s.id === selectedStaffId)
-      const isPresent = staffMember?.isPresent ?? false
+      const isPresent = staffMember.isPresent
 
       if (isPresent) {
-        await scanOut(selectedStaffId)
+        await scanOut(targetStaffId)
       } else {
-        await scanIn(selectedStaffId)
+        await scanIn(targetStaffId)
       }
 
       setScanStatus('success')
+
+      // Stop NFC scanning after successful scan
+      if (stopNfcScanRef.current) {
+        stopNfcScanRef.current()
+        stopNfcScanRef.current = null
+      }
 
       // Redirect to dashboard after successful scan
       setTimeout(() => {
@@ -67,7 +105,7 @@ export default function ScanIn() {
     } finally {
       setIsScanning(false)
     }
-  }
+  }, [selectedStaffId, staff, setCurrentUser, scanIn, scanOut, navigate])
 
   const handleStartQRScan = async () => {
     setIsScanning(true)
@@ -88,20 +126,63 @@ export default function ScanIn() {
   }
 
   const handleStartNFCScan = async () => {
+    // Check NFC availability first
+    const status = getNFCStatus()
+    setNfcStatus(status)
+
+    if (status === 'unavailable') {
+      setError('Web NFC is not supported in this browser. Try Chrome on Android.')
+      return
+    }
+
+    if (status === 'requires-https') {
+      setError('NFC requires HTTPS. Please access this app via a secure connection.')
+      return
+    }
+
     setIsScanning(true)
     setScanStatus('idle')
     setError(null)
 
-    // TODO: Implement actual NFC scanning using Web NFC API
-    // For now, simulate after a delay
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    try {
+      const stopScan = await nfcService.startScan(
+        // On successful tag read
+        (result: NFCScanResult) => {
+          console.log('[NFC] Tag read:', result)
+          handleScan(result.staffId)
+        },
+        // On error
+        (nfcError) => {
+          console.error('[NFC] Error:', nfcError)
+          setError(nfcError.message)
+          setNfcStatus(nfcError.status)
+          if (nfcError.status !== 'error') {
+            // For permission denied or other fatal errors, stop scanning
+            setIsScanning(false)
+          }
+        }
+      )
 
-    if (selectedStaffId) {
-      await handleScan()
-    } else {
+      // Store stop function for cleanup
+      stopNfcScanRef.current = stopScan
+
+    } catch (err) {
       setIsScanning(false)
-      setError('No NFC tag detected')
+      if (err && typeof err === 'object' && 'message' in err) {
+        setError((err as { message: string }).message)
+      } else {
+        setError('Failed to start NFC scan')
+      }
     }
+  }
+
+  const handleStopNFCScan = () => {
+    if (stopNfcScanRef.current) {
+      stopNfcScanRef.current()
+      stopNfcScanRef.current = null
+    }
+    setIsScanning(false)
+    setScanStatus('idle')
   }
 
   const currentStaffMember = staff.find(s => s.id === selectedStaffId)
@@ -218,7 +299,7 @@ export default function ScanIn() {
                 </div>
               ) : (
                 <button
-                  onClick={handleScan}
+                  onClick={() => handleScan()}
                   disabled={isScanning || !selectedStaffId}
                   className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
@@ -266,6 +347,21 @@ export default function ScanIn() {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* NFC Availability Warning */}
+              {nfcStatus === 'unavailable' && (
+                <div className="bg-amber-50 text-amber-700 px-4 py-3 rounded-xl text-sm">
+                  <p className="font-medium">Web NFC not supported</p>
+                  <p className="mt-1">NFC scanning requires Chrome on Android. Try manual mode instead.</p>
+                </div>
+              )}
+
+              {nfcStatus === 'requires-https' && (
+                <div className="bg-amber-50 text-amber-700 px-4 py-3 rounded-xl text-sm">
+                  <p className="font-medium">HTTPS Required</p>
+                  <p className="mt-1">NFC requires a secure connection. Access this app via HTTPS.</p>
+                </div>
+              )}
+
               <div className="aspect-square bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl flex items-center justify-center">
                 {isScanning ? (
                   <div className="text-center">
@@ -274,7 +370,8 @@ export default function ScanIn() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
                       </svg>
                     </div>
-                    <p className="text-blue-600 font-medium">Waiting for NFC tag...</p>
+                    <p className="text-blue-600 font-medium">Scanning for NFC tags...</p>
+                    <p className="text-blue-500 text-sm mt-1">Hold your phone near an NFC tag</p>
                   </div>
                 ) : scanStatus === 'success' ? (
                   <div className="text-center">
@@ -285,6 +382,16 @@ export default function ScanIn() {
                     </div>
                     <p className="text-green-600 font-medium">Success!</p>
                   </div>
+                ) : nfcStatus === 'permission-denied' ? (
+                  <div className="text-center">
+                    <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                    </div>
+                    <p className="text-red-600 font-medium">Permission Denied</p>
+                    <p className="text-gray-500 text-sm mt-1">Allow NFC access in your browser settings</p>
+                  </div>
                 ) : (
                   <div className="text-center">
                     <div className="w-24 h-24 border-4 border-dashed border-blue-300 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -292,18 +399,35 @@ export default function ScanIn() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
                       </svg>
                     </div>
-                    <p className="text-gray-500">Tap your phone on the NFC tag</p>
+                    <p className="text-gray-600 font-medium">Ready to scan</p>
+                    <p className="text-gray-500 text-sm mt-1">Tap the button below to start scanning</p>
                   </div>
                 )}
               </div>
 
-              <button
-                onClick={handleStartNFCScan}
-                disabled={isScanning || scanStatus === 'success'}
-                className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isScanning ? 'Listening...' : 'Enable NFC'}
-              </button>
+              {isScanning ? (
+                <button
+                  onClick={handleStopNFCScan}
+                  className="w-full bg-gray-200 text-gray-700 py-4 rounded-xl font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition"
+                >
+                  Stop Scanning
+                </button>
+              ) : (
+                <button
+                  onClick={handleStartNFCScan}
+                  disabled={scanStatus === 'success' || nfcStatus === 'unavailable' || nfcStatus === 'requires-https'}
+                  className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {nfcStatus === 'permission-denied' ? 'Try Again' : 'Start NFC Scan'}
+                </button>
+              )}
+
+              {/* NFC Tag Format Info */}
+              {nfcStatus === 'available' && !isScanning && scanStatus !== 'success' && (
+                <p className="text-xs text-gray-500 text-center">
+                  NFC tags should contain a staff ID as text (e.g., "staff:alice")
+                </p>
+              )}
             </div>
           )}
         </div>
