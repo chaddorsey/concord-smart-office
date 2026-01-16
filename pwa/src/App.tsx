@@ -1,0 +1,36 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider, PresenceProvider, SpotifyProvider, SandTableProvider, PhotoFrameProvider } from './stores'
+import Login from './views/Login'
+import Dashboard from './views/Dashboard'
+import ScanIn from './views/ScanIn'
+import Music from './views/Music'
+import SandTable from './views/SandTable'
+import PhotoFrames from './views/PhotoFrames'
+
+function App() {
+  return (
+    <AuthProvider>
+      <PresenceProvider>
+        <SpotifyProvider>
+          <SandTableProvider>
+            <PhotoFrameProvider>
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/" element={<Navigate to="/login" replace />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/scan" element={<ScanIn />} />
+                  <Route path="/music" element={<Music />} />
+                  <Route path="/sand" element={<SandTable />} />
+                  <Route path="/photos" element={<PhotoFrames />} />
+                </Routes>
+              </BrowserRouter>
+            </PhotoFrameProvider>
+          </SandTableProvider>
+        </SpotifyProvider>
+      </PresenceProvider>
+    </AuthProvider>
+  )
+}
+
+export default App
