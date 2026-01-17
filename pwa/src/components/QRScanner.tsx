@@ -8,6 +8,22 @@ interface QRScannerProps {
   isActive: boolean
 }
 
+// Make the WebView transparent so native camera shows through
+function setWebViewTransparent(transparent: boolean) {
+  const html = document.documentElement
+  const body = document.body
+
+  if (transparent) {
+    html.style.backgroundColor = 'transparent'
+    body.style.backgroundColor = 'transparent'
+    body.classList.add('scanner-active')
+  } else {
+    html.style.backgroundColor = ''
+    body.style.backgroundColor = ''
+    body.classList.remove('scanner-active')
+  }
+}
+
 export default function QRScanner({ onScan, onError, isActive }: QRScannerProps) {
   const [isStarting, setIsStarting] = useState(false)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
@@ -32,6 +48,7 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
       // Stop scanner when not active
       hasScannedRef.current = false
       if (isNative) {
+        setWebViewTransparent(false)
         BarcodeScanner.stopScan().catch(() => {})
         if (scanListenerRef.current) {
           scanListenerRef.current.remove().catch(() => {})
@@ -61,6 +78,9 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
 
         setHasPermission(true)
 
+        // Make WebView transparent so camera shows through
+        setWebViewTransparent(true)
+
         // Add listener for barcodes
         const listener = await BarcodeScanner.addListener('barcodesScanned', handleBarcodesScanned)
         scanListenerRef.current = listener
@@ -74,6 +94,7 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
       } catch (err) {
         console.error('[QR] Failed to start native scanner:', err)
         setHasPermission(false)
+        setWebViewTransparent(false)
         onError?.(err instanceof Error ? err.message : 'Failed to start camera')
         setIsStarting(false)
       }
@@ -90,6 +111,7 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
     // Cleanup
     return () => {
       if (isNative) {
+        setWebViewTransparent(false)
         BarcodeScanner.stopScan().catch(() => {})
         if (scanListenerRef.current) {
           scanListenerRef.current.remove().catch(() => {})

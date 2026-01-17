@@ -57,7 +57,7 @@ function parseQRLocation(data: string): { locationId: string; locationName?: str
 export default function ScanIn() {
   const navigate = useNavigate()
   const { isAuthenticated, connectionStatus, isMockMode } = useAuth()
-  const { currentUserId, isCurrentUserPresent, staff } = usePresence()
+  const { currentUserId, isCurrentUserPresent, staff, togglePresence } = usePresence()
 
   // Default to QR mode since NFC requires paid developer account
   const [scanMode, setScanMode] = useState<ScanMode>('qr')
@@ -100,8 +100,10 @@ export default function ScanIn() {
           action: isCurrentUserPresent ? 'check-out' : 'check-in',
           timestamp: new Date().toISOString()
         }
-        // Simulate delay
-        await new Promise(resolve => setTimeout(resolve, 500))
+        // Actually toggle the presence state
+        await togglePresence(currentUserId)
+        // Simulate delay for UX
+        await new Promise(resolve => setTimeout(resolve, 300))
       } else {
         // Real check-in via Home Assistant
         result = await presenceService.smartCheckIn(
@@ -123,7 +125,7 @@ export default function ScanIn() {
       console.error('Check-in failed:', err)
       setError(err instanceof Error ? err.message : 'Check-in failed')
     }
-  }, [currentUserId, isCurrentUserPresent, isMockMode, navigate])
+  }, [currentUserId, isCurrentUserPresent, isMockMode, navigate, togglePresence])
 
   // Handle QR code scan
   const handleQRScan = useCallback((data: string) => {

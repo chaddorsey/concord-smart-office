@@ -85,6 +85,10 @@ let isMockMode = false
 export function enableMockMode(): void {
   isMockMode = true
   localStorage.setItem('mockMode', 'true')
+  // Auto-set a default user (Carol - not currently present, good for testing check-in)
+  if (!localStorage.getItem('current_user_id')) {
+    localStorage.setItem('current_user_id', 'carol')
+  }
 }
 
 export function disableMockMode(): void {

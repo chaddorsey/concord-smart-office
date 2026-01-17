@@ -27,3 +27,21 @@ body {
 .animate-scan {
   animation: scan 2s ease-in-out infinite;
 }
+
+/* Native QR Scanner mode - make backgrounds transparent */
+body.scanner-active {
+  background: transparent !important;
+}
+
+body.scanner-active #root {
+  background: transparent !important;
+}
+
+body.scanner-active .min-h-screen {
+  background: transparent !important;
+}
+
+/* Keep scanner UI visible with semi-transparent background */
+body.scanner-active .scanner-container {
+  background: rgba(0, 0, 0, 0.3) !important;
+}
