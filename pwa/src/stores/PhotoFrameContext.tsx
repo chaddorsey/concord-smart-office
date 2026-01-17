@@ -28,10 +28,18 @@ const DEMO_QUEUE_SETTINGS: QueueSettings = {
   videoLoopCount: 3
 }
 
+interface TrashRateLimit {
+  used: number
+  remaining: number
+  resetsIn: number | null
+}
+
 interface LocalState {
   selectedFrameId: string | null
   selectedPlaylist: string | null
   userVotes: Map<string, 'up' | 'down'>
+  queueItemVotes: Map<string, 'up' | 'down'> // itemId -> user's vote
+  trashRateLimit: TrashRateLimit
   isLoading: boolean
   error: string | null
 }
@@ -67,6 +75,14 @@ interface PhotoFrameContextValue extends PhotoFrameState, LocalState {
   removeFromHoldingTank: (itemId: string) => Promise<void>
   getAvailableOrientations: () => MediaOrientation[]
 
+  // Queue item voting
+  voteQueueItem: (frameId: string, itemId: string, vote: 'up' | 'down') => Promise<{ netVotes: number; markedForRemoval: boolean }>
+  getQueueItemVote: (itemId: string) => 'up' | 'down' | null
+
+  // Queue item trash with rate limiting
+  trashQueueItem: (frameId: string, itemId: string) => Promise<{ success: boolean; warning?: string; error?: string }>
+  refreshTrashRateLimit: () => Promise<void>
+
   // Permissions
   canControl: boolean
 }
@@ -92,6 +108,8 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     selectedFrameId: null,
     selectedPlaylist: null,
     userVotes: new Map(),
+    queueItemVotes: new Map(),
+    trashRateLimit: { used: 0, remaining: 3, resetsIn: null },
     isLoading: false,
     error: null
   })
@@ -197,6 +215,35 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [isAuthenticated, isMockMode])
+
+  // Fetch trash rate limit on mount and periodically
+  useEffect(() => {
+    if (!currentUserId || !isMockMode) return
+
+    const fetchTrashLimit = async () => {
+      try {
+        const response = await fetch(`http://localhost:3001/api/queue/trash-limit/${currentUserId}`)
+        const result = await response.json()
+
+        setLocalState(prev => ({
+          ...prev,
+          trashRateLimit: {
+            used: result.used || 0,
+            remaining: result.remaining ?? 3,
+            resetsIn: result.resetsIn || null
+          }
+        }))
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to fetch trash limit:', err)
+      }
+    }
+
+    fetchTrashLimit()
+
+    // Refresh every 30 seconds to update "resets in" countdown
+    const interval = setInterval(fetchTrashLimit, 30000)
+    return () => clearInterval(interval)
+  }, [currentUserId, isMockMode])
 
   // Frame selection
   const selectFrame = useCallback((frameId: string | null) => {
@@ -623,6 +670,141 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     return photoFrameService.getAvailableOrientations(haState.frames)
   }, [haState.frames])
 
+  // Vote on a queue item
+  const voteQueueItem = useCallback(async (frameId: string, itemId: string, vote: 'up' | 'down') => {
+    if (!currentUserId || !isCurrentUserPresent) {
+      return { netVotes: 0, markedForRemoval: false }
+    }
+
+    // Check if user already voted the same way (toggle off)
+    const existingVote = localState.queueItemVotes.get(itemId)
+    const isTogglingOff = existingVote === vote
+
+    if (isMockMode) {
+      try {
+        let response
+        if (isTogglingOff) {
+          // Remove the vote entirely
+          response = await fetch('http://localhost:3001/api/queue/vote', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              frameId,
+              itemId,
+              voterId: currentUserId
+            })
+          })
+        } else {
+          // Add or change vote
+          response = await fetch('http://localhost:3001/api/queue/vote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              frameId,
+              itemId,
+              voterId: currentUserId,
+              vote
+            })
+          })
+        }
+        const result = await response.json()
+
+        // Update local vote state
+        setLocalState(prev => {
+          const newVotes = new Map(prev.queueItemVotes)
+          if (isTogglingOff) {
+            newVotes.delete(itemId)
+          } else {
+            newVotes.set(itemId, vote)
+          }
+          return { ...prev, queueItemVotes: newVotes }
+        })
+
+        return { netVotes: result.netVotes || 0, markedForRemoval: result.markedForRemoval || false }
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to vote:', err)
+        return { netVotes: 0, markedForRemoval: false }
+      }
+    }
+
+    // For HA mode - TODO: implement
+    return { netVotes: 0, markedForRemoval: false }
+  }, [currentUserId, isCurrentUserPresent, isMockMode, localState.queueItemVotes])
+
+  // Get user's vote on a queue item
+  const getQueueItemVote = useCallback((itemId: string): 'up' | 'down' | null => {
+    return localState.queueItemVotes.get(itemId) || null
+  }, [localState.queueItemVotes])
+
+  // Trash a queue item with rate limiting
+  const trashQueueItem = useCallback(async (frameId: string, itemId: string) => {
+    if (!currentUserId || !isCurrentUserPresent) {
+      return { success: false, error: 'Not signed in' }
+    }
+
+    if (isMockMode) {
+      try {
+        const response = await fetch('http://localhost:3001/api/queue/trash', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            frameId,
+            itemId,
+            userId: currentUserId
+          })
+        })
+
+        if (response.status === 429) {
+          const errorData = await response.json()
+          return { success: false, error: errorData.message }
+        }
+
+        const result = await response.json()
+
+        // Update local trash rate limit
+        setLocalState(prev => ({
+          ...prev,
+          trashRateLimit: {
+            used: 3 - (result.trashesRemaining || 0),
+            remaining: result.trashesRemaining || 0,
+            resetsIn: null
+          }
+        }))
+
+        return { success: true, warning: result.warning }
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to trash:', err)
+        return { success: false, error: 'Failed to remove item' }
+      }
+    }
+
+    // For HA mode - TODO: implement
+    return { success: false, error: 'Not implemented' }
+  }, [currentUserId, isCurrentUserPresent, isMockMode])
+
+  // Refresh trash rate limit
+  const refreshTrashRateLimit = useCallback(async () => {
+    if (!currentUserId) return
+
+    if (isMockMode) {
+      try {
+        const response = await fetch(`http://localhost:3001/api/queue/trash-limit/${currentUserId}`)
+        const result = await response.json()
+
+        setLocalState(prev => ({
+          ...prev,
+          trashRateLimit: {
+            used: result.used || 0,
+            remaining: result.remaining || 3,
+            resetsIn: result.resetsIn
+          }
+        }))
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to refresh trash limit:', err)
+      }
+    }
+  }, [currentUserId, isMockMode])
+
   const canControl = isCurrentUserPresent
 
   return (
@@ -650,6 +832,10 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
         redistributeHoldingTank,
         removeFromHoldingTank,
         getAvailableOrientations,
+        voteQueueItem,
+        getQueueItemVote,
+        trashQueueItem,
+        refreshTrashRateLimit,
         canControl
       }}
     >

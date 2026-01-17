@@ -45,7 +45,7 @@ export default function BrowseVideos() {
   }, [])
 
   // Search videos
-  const searchVideos = useCallback(async (append = false) => {
+  const searchVideos = useCallback(async (page = 1, append = false) => {
     setIsLoading(true)
     setError(null)
 
@@ -57,38 +57,41 @@ export default function BrowseVideos() {
       }
 
       const result = await pixabayService.searchVideos(query, {
-        page: append ? currentPage : 1,
+        page,
         perPage: 20,
         category: selectedCategory
       })
 
       setTotalVideos(result.total)
+      setCurrentPage(page)
       if (append) {
-        setVideos(prev => [...prev, ...result.videos])
+        // Deduplicate by video ID to handle any overlap between pages
+        setVideos(prev => {
+          const existingIds = new Set(prev.map(v => v.id))
+          const newVideos = result.videos.filter(v => !existingIds.has(v.id))
+          return [...prev, ...newVideos]
+        })
       } else {
         setVideos(result.videos)
-        setCurrentPage(1)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to search videos')
     } finally {
       setIsLoading(false)
     }
-  }, [searchQuery, selectedCategory, currentPage, orientationFilter])
+  }, [searchQuery, selectedCategory, orientationFilter])
 
   // Initial search and re-search on orientation change
   useEffect(() => {
-    searchVideos()
+    searchVideos(1, false)
   }, [orientationFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadMore = () => {
-    setCurrentPage(prev => prev + 1)
-    searchVideos(true)
+    searchVideos(currentPage + 1, true)
   }
 
   const handleSearch = () => {
-    setCurrentPage(1)
-    searchVideos()
+    searchVideos(1, false)
   }
 
   const formatDuration = (seconds: number) => {

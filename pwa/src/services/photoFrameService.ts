@@ -33,6 +33,12 @@ export interface MediaItem {
   height?: number
 }
 
+export interface QueueItemVote {
+  voterId: string
+  vote: 'up' | 'down'
+  timestamp: number
+}
+
 export interface QueueItem {
   id: string
   url: string
@@ -44,6 +50,10 @@ export interface QueueItem {
   hasPlayed: boolean
   thumbnail?: string
   duration?: number
+  // Voting system
+  votes?: QueueItemVote[]
+  netVotes?: number           // Calculated: upvotes - downvotes
+  rotationsRemaining?: number // How many more rotations before falling off
 }
 
 export interface QueueSettings {

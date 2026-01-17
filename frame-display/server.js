@@ -36,6 +36,68 @@ const localQueueStore = {
   framePositions: { '1': 0, '2': 0, '3': 0, '4': 0 }
 };
 
+// Trash rate limiting: track user trash actions
+// userId -> { count: number, timestamps: number[] }
+const trashRateLimits = new Map();
+
+// Helper: Calculate net votes for a queue item
+function getNetVotes(item) {
+  if (!item.votes || item.votes.length === 0) return 0;
+  return item.votes.reduce((sum, v) => sum + (v.vote === 'up' ? 1 : -1), 0);
+}
+
+// Helper: Check and clean up trash rate limit for a user
+function getTrashRateLimit(userId) {
+  const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
+  let userData = trashRateLimits.get(userId) || { count: 0, timestamps: [] };
+
+  // Filter out timestamps older than 30 minutes
+  userData.timestamps = userData.timestamps.filter(t => t > thirtyMinutesAgo);
+  userData.count = userData.timestamps.length;
+
+  trashRateLimits.set(userId, userData);
+  return userData;
+}
+
+// Helper: Record a trash action
+function recordTrashAction(userId) {
+  const userData = getTrashRateLimit(userId);
+  userData.timestamps.push(Date.now());
+  userData.count = userData.timestamps.length;
+  trashRateLimits.set(userId, userData);
+  return userData;
+}
+
+// Helper: Process queue item removal based on votes
+function shouldRemoveItem(item, isCurrentlyPlaying) {
+  const netVotes = getNetVotes(item);
+
+  // Net -2 or worse: mark for removal (after playing if currently displayed)
+  if (netVotes <= -2) {
+    return !isCurrentlyPlaying; // Remove immediately if not playing
+  }
+
+  return false;
+}
+
+// Helper: Determine rotations remaining based on votes
+function calculateRotationsRemaining(item, queueLimit, queueLength) {
+  const netVotes = getNetVotes(item);
+
+  // Net +1 or more: extra rotations in full queue
+  if (netVotes >= 1) {
+    return 2; // Stay for 2 more rotations when queue is full
+  }
+
+  // Net -1: only 1 rotation remaining, falls off even if queue not full
+  if (netVotes === -1) {
+    return 1;
+  }
+
+  // Neutral: normal FIFO behavior
+  return undefined;
+}
+
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -163,6 +225,190 @@ app.delete('/api/queue/holding-tank/:id', (req, res) => {
   const itemId = req.params.id;
   localQueueStore.holdingTank = localQueueStore.holdingTank.filter(item => item.id !== itemId);
   res.json({ success: true });
+});
+
+// Vote on a queue item
+app.post('/api/queue/vote', (req, res) => {
+  const { frameId, itemId, voterId, vote } = req.body;
+
+  if (!frameId || !itemId || !voterId || !['up', 'down'].includes(vote)) {
+    return res.status(400).json({ error: 'Invalid vote request' });
+  }
+
+  const queue = localQueueStore.frameQueues[frameId];
+  if (!queue) {
+    return res.status(404).json({ error: 'Frame not found' });
+  }
+
+  const item = queue.find(i => i.id === itemId);
+  if (!item) {
+    return res.status(404).json({ error: 'Item not found in queue' });
+  }
+
+  // Initialize votes array if needed
+  if (!item.votes) item.votes = [];
+
+  // Remove existing vote from this user
+  item.votes = item.votes.filter(v => v.voterId !== voterId);
+
+  // Add new vote
+  item.votes.push({
+    voterId,
+    vote,
+    timestamp: Date.now()
+  });
+
+  // Calculate net votes
+  item.netVotes = getNetVotes(item);
+
+  // Calculate rotations remaining based on votes
+  item.rotationsRemaining = calculateRotationsRemaining(
+    item,
+    localQueueStore.settings.queueLimit,
+    queue.length
+  );
+
+  // Check if item should be removed due to net -2 or worse
+  const currentPosition = localQueueStore.framePositions[frameId] || 0;
+  const isCurrentlyPlaying = queue.indexOf(item) === (currentPosition % queue.length);
+
+  if (shouldRemoveItem(item, isCurrentlyPlaying)) {
+    // Mark for removal after play or remove immediately
+    item.markedForRemoval = true;
+    if (!isCurrentlyPlaying) {
+      localQueueStore.frameQueues[frameId] = queue.filter(i => i.id !== itemId);
+    }
+  }
+
+  res.json({
+    success: true,
+    netVotes: item.netVotes,
+    rotationsRemaining: item.rotationsRemaining,
+    markedForRemoval: item.markedForRemoval || false
+  });
+});
+
+// Get user's vote on a queue item
+app.get('/api/queue/vote/:frameId/:itemId/:voterId', (req, res) => {
+  const { frameId, itemId, voterId } = req.params;
+
+  const queue = localQueueStore.frameQueues[frameId];
+  if (!queue) {
+    return res.json({ vote: null });
+  }
+
+  const item = queue.find(i => i.id === itemId);
+  if (!item || !item.votes) {
+    return res.json({ vote: null });
+  }
+
+  const userVote = item.votes.find(v => v.voterId === voterId);
+  res.json({ vote: userVote?.vote || null });
+});
+
+// Remove a vote from a queue item
+app.delete('/api/queue/vote', (req, res) => {
+  const { frameId, itemId, voterId } = req.body;
+
+  if (!frameId || !itemId || !voterId) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  const queue = localQueueStore.frameQueues[frameId];
+  if (!queue) {
+    return res.status(404).json({ error: 'Frame not found' });
+  }
+
+  const item = queue.find(i => i.id === itemId);
+  if (!item) {
+    return res.status(404).json({ error: 'Item not found' });
+  }
+
+  if (!item.votes) {
+    return res.json({ success: true, netVotes: 0 });
+  }
+
+  // Remove the user's vote
+  item.votes = item.votes.filter(v => v.voterId !== voterId);
+  item.netVotes = getNetVotes(item);
+
+  res.json({
+    success: true,
+    netVotes: item.netVotes
+  });
+});
+
+// Trash (immediately remove) a queue item with rate limiting
+app.post('/api/queue/trash', (req, res) => {
+  const { frameId, itemId, userId } = req.body;
+
+  if (!frameId || !itemId || !userId) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // Check rate limit
+  const rateLimit = getTrashRateLimit(userId);
+
+  if (rateLimit.count >= 3) {
+    return res.status(429).json({
+      error: 'Rate limit exceeded',
+      message: 'You have used all 3 trash actions in the last 30 minutes. Use thumbs down to vote items out instead!',
+      remainingTime: Math.ceil((rateLimit.timestamps[0] + (30 * 60 * 1000) - Date.now()) / 60000)
+    });
+  }
+
+  const queue = localQueueStore.frameQueues[frameId];
+  if (!queue) {
+    return res.status(404).json({ error: 'Frame not found' });
+  }
+
+  const itemIndex = queue.findIndex(i => i.id === itemId);
+  if (itemIndex === -1) {
+    return res.status(404).json({ error: 'Item not found in queue' });
+  }
+
+  // Record the trash action
+  const updatedLimit = recordTrashAction(userId);
+
+  // Remove the item
+  localQueueStore.frameQueues[frameId] = queue.filter(i => i.id !== itemId);
+
+  // Adjust position if needed
+  const currentPosition = localQueueStore.framePositions[frameId] || 0;
+  if (itemIndex < currentPosition) {
+    localQueueStore.framePositions[frameId] = Math.max(0, currentPosition - 1);
+  } else if (itemIndex === currentPosition && queue.length > 1) {
+    // If we removed the current item, position stays but will now point to next
+    if (currentPosition >= queue.length - 1) {
+      localQueueStore.framePositions[frameId] = 0;
+    }
+  }
+
+  // Prepare warning message
+  let warning = null;
+  if (updatedLimit.count === 2) {
+    warning = 'You have 1 trash action remaining in the next 30 minutes. Consider using thumbs down to vote items off the queue instead!';
+  }
+
+  res.json({
+    success: true,
+    trashesRemaining: 3 - updatedLimit.count,
+    warning
+  });
+});
+
+// Get user's trash rate limit status
+app.get('/api/queue/trash-limit/:userId', (req, res) => {
+  const { userId } = req.params;
+  const rateLimit = getTrashRateLimit(userId);
+
+  res.json({
+    used: rateLimit.count,
+    remaining: Math.max(0, 3 - rateLimit.count),
+    resetsIn: rateLimit.timestamps.length > 0
+      ? Math.ceil((rateLimit.timestamps[0] + (30 * 60 * 1000) - Date.now()) / 60000)
+      : null
+  });
 });
 
 // Pixabay video search API

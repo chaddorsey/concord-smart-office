@@ -23,11 +23,17 @@ export default function PhotoFrames() {
     updateQueueSettings,
     setFrameOrientation,
     redistributeHoldingTank,
-    removeFromHoldingTank
+    removeFromHoldingTank,
+    // Voting and trash
+    voteQueueItem,
+    getQueueItemVote,
+    trashQueueItem,
+    trashRateLimit
   } = usePhotoFrames()
 
   const [viewMode, setViewMode] = useState<'frames' | 'library' | 'settings'>('frames')
   const [selectedPlaylist, setSelectedPlaylist] = useState<string | null>(null)
+  const [trashWarning, setTrashWarning] = useState<string | null>(null)
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -257,6 +263,102 @@ export default function PhotoFrames() {
                     </span>
                   </div>
 
+                  {/* Voting Controls for Current Item */}
+                  {currentQueueItem && (
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-600">Rate this item</span>
+                          {(currentQueueItem.netVotes || 0) !== 0 && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              (currentQueueItem.netVotes || 0) > 0
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}>
+                              {(currentQueueItem.netVotes || 0) > 0 ? '+' : ''}{currentQueueItem.netVotes}
+                            </span>
+                          )}
+                        </div>
+                      <div className="flex items-center gap-2">
+                        {/* Thumbs Up */}
+                        <button
+                          onClick={() => voteQueueItem(selectedFrame.id, currentQueueItem.id, 'up')}
+                          disabled={!canControl}
+                          className={`p-2 rounded-lg transition ${
+                            getQueueItemVote(currentQueueItem.id) === 'up'
+                              ? 'bg-green-100 text-green-600'
+                              : 'text-gray-400 hover:bg-green-50 hover:text-green-600'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          title="Keep in queue longer"
+                        >
+                          <svg className="w-5 h-5" fill={getQueueItemVote(currentQueueItem.id) === 'up' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                          </svg>
+                        </button>
+
+                        {/* Thumbs Down */}
+                        <button
+                          onClick={() => voteQueueItem(selectedFrame.id, currentQueueItem.id, 'down')}
+                          disabled={!canControl}
+                          className={`p-2 rounded-lg transition ${
+                            getQueueItemVote(currentQueueItem.id) === 'down'
+                              ? 'bg-red-100 text-red-600'
+                              : 'text-gray-400 hover:bg-red-50 hover:text-red-600'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          title="Remove from queue sooner"
+                        >
+                          <svg className="w-5 h-5" fill={getQueueItemVote(currentQueueItem.id) === 'down' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
+                          </svg>
+                        </button>
+
+                        {/* Trash */}
+                        <button
+                          onClick={async () => {
+                            const result = await trashQueueItem(selectedFrame.id, currentQueueItem.id)
+                            if (result.warning || result.error) {
+                              setTrashWarning(result.warning || result.error || null)
+                              setTimeout(() => setTrashWarning(null), 5000)
+                            }
+                          }}
+                          disabled={!canControl || trashRateLimit.remaining === 0}
+                          className={`p-2 rounded-lg transition ${
+                            trashRateLimit.remaining === 0
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'text-gray-400 hover:bg-red-50 hover:text-red-600'
+                          } disabled:opacity-50`}
+                          title={trashRateLimit.remaining === 0
+                            ? `Resets in ${trashRateLimit.resetsIn || '?'} min`
+                            : `Remove immediately (${trashRateLimit.remaining} left)`}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                      </div>
+                      {/* Rotation Status Message */}
+                      {currentQueueItem.rotationsRemaining !== undefined && (currentQueueItem.netVotes || 0) !== 0 && (
+                        <p className={`text-xs text-center py-1 rounded ${
+                          (currentQueueItem.netVotes || 0) > 0
+                            ? 'text-green-700 bg-green-50'
+                            : 'text-amber-700 bg-amber-50'
+                        }`}>
+                          {(currentQueueItem.netVotes || 0) > 0
+                            ? `Staying for ${currentQueueItem.rotationsRemaining} more playlist round${currentQueueItem.rotationsRemaining > 1 ? 's' : ''} unless downvoted`
+                            : `Leaving in ${currentQueueItem.rotationsRemaining} more playlist round${currentQueueItem.rotationsRemaining > 1 ? 's' : ''} unless upvoted`}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Trash Rate Limit Warning */}
+                  {trashRateLimit.remaining === 0 && trashRateLimit.resetsIn && (
+                    <div className="text-xs text-center text-amber-600 bg-amber-50 rounded-lg py-2">
+                      🗑 Trash limit reached. Resets in {trashRateLimit.resetsIn} min. Use 👎 to vote items off instead!
+                    </div>
+                  )}
+
                   {/* Skip Button */}
                   <div className="flex items-center justify-between">
                     <div>
@@ -318,72 +420,183 @@ export default function PhotoFrames() {
               </div>
             </div>
 
+            {/* Trash Warning */}
+            {trashWarning && (
+              <div className="bg-amber-50 text-amber-700 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span>{trashWarning}</span>
+              </div>
+            )}
+
             {/* Queue Items */}
             <div className="bg-white rounded-xl shadow-sm p-4">
-              <h3 className="font-semibold text-gray-900 mb-3">
-                {selectedPlaylist
-                  ? `Frame ${selectedPlaylist} Queue (${(frameQueues[selectedPlaylist] || []).length})`
-                  : `All Queued Items (${Object.values(frameQueues).flat().length})`}
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-900">
+                  {selectedPlaylist
+                    ? `Frame ${selectedPlaylist} Queue (${(frameQueues[selectedPlaylist] || []).length})`
+                    : `All Queued Items (${Object.values(frameQueues).flat().length})`}
+                </h3>
+                {trashRateLimit.remaining < 3 && (
+                  <span className={`text-xs ${trashRateLimit.remaining === 0 ? 'text-amber-600' : 'text-gray-500'}`}>
+                    {trashRateLimit.remaining === 0
+                      ? `🗑 Resets in ${trashRateLimit.resetsIn || '?'} min`
+                      : `🗑 ${trashRateLimit.remaining}/3 left`}
+                  </span>
+                )}
+              </div>
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {(selectedPlaylist
-                  ? (frameQueues[selectedPlaylist] || [])
+                  ? (frameQueues[selectedPlaylist] || []).map(item => ({ ...item, frameId: selectedPlaylist }))
                   : Object.entries(frameQueues).flatMap(([frameId, queue]) =>
                       queue.map(item => ({ ...item, frameId }))
                     )
-                ).map((item: any) => (
-                  <div
-                    key={item.id}
-                    className={`flex items-center gap-3 p-2 rounded-lg transition ${
-                      item.hasPlayed ? 'bg-green-50' : 'bg-gray-50 hover:bg-gray-100'
-                    }`}
-                  >
-                    {/* Thumbnail */}
-                    <div className="w-16 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-gray-900 relative">
-                      {item.thumbnail ? (
-                        <img
-                          src={item.thumbnail}
-                          alt={item.title}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-500">
-                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
-                        </div>
-                      )}
-                      {/* Type badge */}
-                      <span className={`absolute bottom-0 right-0 px-1 text-[10px] ${
-                        item.type === 'video' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
-                      }`}>
-                        {item.type === 'video' ? '▶' : '🖼'}
-                      </span>
-                    </div>
+                ).map((item: any) => {
+                  const userVote = getQueueItemVote(item.id)
+                  const netVotes = item.netVotes || 0
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 text-xs">
-                        {item.frameId && !selectedPlaylist && (
-                          <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">Frame {item.frameId}</span>
+                  return (
+                    <div
+                      key={item.id}
+                      className={`flex items-center gap-3 p-2 rounded-lg transition ${
+                        item.markedForRemoval
+                          ? 'bg-red-50 border border-red-200'
+                          : item.hasPlayed
+                          ? 'bg-green-50'
+                          : 'bg-gray-50 hover:bg-gray-100'
+                      }`}
+                    >
+                      {/* Thumbnail */}
+                      <div className="w-16 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-gray-900 relative">
+                        {item.thumbnail ? (
+                          <img
+                            src={item.thumbnail}
+                            alt={item.title}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-gray-500">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                          </div>
                         )}
-                        <span className={`px-1.5 py-0.5 rounded ${
-                          item.orientation === 'horizontal' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                        {/* Type badge */}
+                        <span className={`absolute bottom-0 right-0 px-1 text-[10px] ${
+                          item.type === 'video' ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
                         }`}>
-                          {item.orientation === 'horizontal' ? 'H' : 'V'}
+                          {item.type === 'video' ? '▶' : '🖼'}
                         </span>
-                        {item.duration && (
-                          <span className="text-gray-400">
-                            {Math.floor(item.duration / 60)}:{(item.duration % 60).toString().padStart(2, '0')}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-xs flex-wrap">
+                          {item.frameId && !selectedPlaylist && (
+                            <span className="px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">Frame {item.frameId}</span>
+                          )}
+                          <span className={`px-1.5 py-0.5 rounded ${
+                            item.orientation === 'horizontal' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                          }`}>
+                            {item.orientation === 'horizontal' ? 'H' : 'V'}
                           </span>
-                        )}
-                        {item.hasPlayed && (
-                          <span className="text-green-600">✓ Played</span>
+                          {item.duration && (
+                            <span className="text-gray-400">
+                              {Math.floor(item.duration / 60)}:{(item.duration % 60).toString().padStart(2, '0')}
+                            </span>
+                          )}
+                          {item.hasPlayed && (
+                            <span className="text-green-600">✓ Played</span>
+                          )}
+                          {netVotes !== 0 && (
+                            <span className={`px-1.5 py-0.5 rounded ${
+                              netVotes > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                              {netVotes > 0 ? '+' : ''}{netVotes}
+                            </span>
+                          )}
+                          {item.markedForRemoval && (
+                            <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded">Removing...</span>
+                          )}
+                        </div>
+                        {/* Rotation Status */}
+                        {item.rotationsRemaining !== undefined && netVotes !== 0 && (
+                          <p className={`text-[10px] mt-1 ${
+                            netVotes > 0 ? 'text-green-600' : 'text-amber-600'
+                          }`}>
+                            {netVotes > 0
+                              ? `Staying ${item.rotationsRemaining} more round${item.rotationsRemaining > 1 ? 's' : ''} unless 👎`
+                              : `Leaving in ${item.rotationsRemaining} round${item.rotationsRemaining > 1 ? 's' : ''} unless 👍`}
+                          </p>
                         )}
                       </div>
+
+                      {/* Voting & Trash Controls */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {/* Thumbs Up */}
+                        <button
+                          onClick={() => voteQueueItem(item.frameId, item.id, 'up')}
+                          disabled={!canControl}
+                          className={`p-1.5 rounded transition ${
+                            userVote === 'up'
+                              ? 'bg-green-100 text-green-600'
+                              : 'text-gray-400 hover:bg-gray-200 hover:text-green-600'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          title="Keep in queue longer"
+                        >
+                          <svg className="w-4 h-4" fill={userVote === 'up' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                          </svg>
+                        </button>
+
+                        {/* Thumbs Down */}
+                        <button
+                          onClick={() => voteQueueItem(item.frameId, item.id, 'down')}
+                          disabled={!canControl}
+                          className={`p-1.5 rounded transition ${
+                            userVote === 'down'
+                              ? 'bg-red-100 text-red-600'
+                              : 'text-gray-400 hover:bg-gray-200 hover:text-red-600'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          title="Remove from queue sooner"
+                        >
+                          <svg className="w-4 h-4" fill={userVote === 'down' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
+                          </svg>
+                        </button>
+
+                        {/* Trash */}
+                        <button
+                          onClick={async () => {
+                            const result = await trashQueueItem(item.frameId, item.id)
+                            if (result.warning) {
+                              setTrashWarning(result.warning)
+                              setTimeout(() => setTrashWarning(null), 5000)
+                            }
+                            if (result.error) {
+                              setTrashWarning(result.error)
+                              setTimeout(() => setTrashWarning(null), 5000)
+                            }
+                          }}
+                          disabled={!canControl || trashRateLimit.remaining === 0}
+                          className={`p-1.5 rounded transition ${
+                            trashRateLimit.remaining === 0
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'text-gray-400 hover:bg-red-100 hover:text-red-600'
+                          } disabled:opacity-50`}
+                          title={trashRateLimit.remaining === 0
+                            ? `Rate limited (resets in ${trashRateLimit.resetsIn || '?'} min)`
+                            : `Remove immediately (${trashRateLimit.remaining} left)`}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
 
                 {Object.values(frameQueues).flat().length === 0 && (
                   <div className="text-center py-8">
