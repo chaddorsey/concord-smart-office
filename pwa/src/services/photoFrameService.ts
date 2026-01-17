@@ -1,95 +1,137 @@
 import { haWebSocket } from './haWebSocket'
 import type { HAState } from './types'
 
-// Photo frame entity patterns - configure based on your HA setup
-// Each frame can be a media_player, camera, or input_select entity
-const FRAME_ENTITIES = [
-  { id: 'frame_1', entityId: 'media_player.photo_frame_1', name: 'Frame 1 - Lobby' },
-  { id: 'frame_2', entityId: 'media_player.photo_frame_2', name: 'Frame 2 - Kitchen' },
-  { id: 'frame_3', entityId: 'media_player.photo_frame_3', name: 'Frame 3 - Meeting Room' },
-  { id: 'frame_4', entityId: 'media_player.photo_frame_4', name: 'Frame 4 - Lounge' },
+// Photo frame entity patterns - matches photo_frames.yaml package
+const FRAME_CONFIGS = [
+  { id: '1', statusEntity: 'sensor.frame_1_status', playlistEntity: 'input_select.frame_1_playlist', skipVotesEntity: 'input_number.frame_1_skip_votes', name: 'Frame 1 - Lobby' },
+  { id: '2', statusEntity: 'sensor.frame_2_status', playlistEntity: 'input_select.frame_2_playlist', skipVotesEntity: 'input_number.frame_2_skip_votes', name: 'Frame 2 - Kitchen' },
+  { id: '3', statusEntity: 'sensor.frame_3_status', playlistEntity: 'input_select.frame_3_playlist', skipVotesEntity: 'input_number.frame_3_skip_votes', name: 'Frame 3 - Meeting Room' },
+  { id: '4', statusEntity: 'sensor.frame_4_status', playlistEntity: 'input_select.frame_4_playlist', skipVotesEntity: 'input_number.frame_4_skip_votes', name: 'Frame 4 - Lounge' },
 ]
+
+const MEDIA_LIBRARY_ENTITY = 'input_text.media_library'
+const ROTATION_INTERVAL_ENTITY = 'input_number.frame_rotation_interval'
+
+export interface MediaItem {
+  id: string
+  url: string
+  type: 'image' | 'video'
+  title: string
+  playlist: string
+  votes: number
+}
 
 export interface PhotoFrame {
   id: string
-  entityId: string
   name: string
-  currentImage: string | null
+  playlist: string
+  currentIndex: number
+  skipVotes: number
   isOnline: boolean
-}
-
-export interface PlaylistImage {
-  id: string
-  url: string
-  title: string
-  addedBy: string
-  addedAt: string
-  upvotes: number
-  downvotes: number
-  score: number
 }
 
 export interface PhotoFrameState {
   frames: PhotoFrame[]
-  playlist: PlaylistImage[]
-  currentPlaylistIndex: number
+  mediaLibrary: MediaItem[]
+  playlists: string[]
+  rotationInterval: number
 }
 
 export class PhotoFrameService {
   private stateChangeSubscription: number | null = null
 
-  // Parse frame state from HA entity
-  private parseFrameState(config: typeof FRAME_ENTITIES[0], state: HAState | undefined): PhotoFrame {
-    if (!state) {
-      return {
-        id: config.id,
-        entityId: config.entityId,
-        name: config.name,
-        currentImage: null,
-        isOnline: false
-      }
-    }
-
-    const attrs = state.attributes as Record<string, unknown>
+  // Parse frame state from HA entities
+  private parseFrameState(config: typeof FRAME_CONFIGS[0], states: HAState[]): PhotoFrame {
+    const statusState = states.find(s => s.entity_id === config.statusEntity)
+    const attrs = statusState?.attributes as Record<string, unknown> || {}
 
     return {
       id: config.id,
-      entityId: config.entityId,
       name: config.name,
-      currentImage: (attrs.entity_picture as string) || (attrs.media_image_url as string) || null,
-      isOnline: state.state !== 'unavailable' && state.state !== 'off'
+      playlist: (attrs.playlist as string) || statusState?.state || 'Office Highlights',
+      currentIndex: parseInt(attrs.index as string, 10) || 0,
+      skipVotes: parseInt(attrs.skip_votes as string, 10) || 0,
+      isOnline: statusState?.state !== 'unavailable' && statusState?.state !== 'unknown'
     }
   }
 
-  // Get all frame states
-  async getFrameStates(): Promise<PhotoFrame[]> {
+  // Parse media library from HA entity
+  private parseMediaLibrary(states: HAState[]): MediaItem[] {
+    const libraryState = states.find(s => s.entity_id === MEDIA_LIBRARY_ENTITY)
+    if (!libraryState?.state) return []
+
+    try {
+      const items = JSON.parse(libraryState.state)
+      return Array.isArray(items) ? items : []
+    } catch (e) {
+      console.error('[PhotoFrame] Failed to parse media library:', e)
+      return []
+    }
+  }
+
+  // Get all playlists from media library
+  private getPlaylistsFromLibrary(items: MediaItem[]): string[] {
+    const playlists = new Set(items.map(item => item.playlist))
+    return Array.from(playlists).sort()
+  }
+
+  // Get rotation interval
+  private getRotationInterval(states: HAState[]): number {
+    const intervalState = states.find(s => s.entity_id === ROTATION_INTERVAL_ENTITY)
+    return parseInt(intervalState?.state || '30', 10)
+  }
+
+  // Get full photo frame state
+  async getState(): Promise<PhotoFrameState> {
     try {
       const states = await haWebSocket.getStates()
 
-      return FRAME_ENTITIES.map(config => {
-        const state = states.find(s => s.entity_id === config.entityId)
-        return this.parseFrameState(config, state)
-      })
+      const mediaLibrary = this.parseMediaLibrary(states)
+      const playlists = this.getPlaylistsFromLibrary(mediaLibrary)
+
+      return {
+        frames: FRAME_CONFIGS.map(config => this.parseFrameState(config, states)),
+        mediaLibrary,
+        playlists,
+        rotationInterval: this.getRotationInterval(states)
+      }
     } catch (err) {
-      console.error('[PhotoFrame] Failed to get frame states:', err)
-      return FRAME_ENTITIES.map(config => this.parseFrameState(config, undefined))
+      console.error('[PhotoFrame] Failed to get state:', err)
+      return {
+        frames: FRAME_CONFIGS.map(config => ({
+          id: config.id,
+          name: config.name,
+          playlist: 'Office Highlights',
+          currentIndex: 0,
+          skipVotes: 0,
+          isOnline: false
+        })),
+        mediaLibrary: [],
+        playlists: [],
+        rotationInterval: 30
+      }
     }
   }
 
-  // Subscribe to frame state changes
+  // Subscribe to state changes
   async subscribeToChanges(
-    onUpdate: (frames: PhotoFrame[]) => void
+    onUpdate: (state: PhotoFrameState) => void
   ): Promise<() => void> {
     // Get initial state
-    const initial = await this.getFrameStates()
+    const initial = await this.getState()
     onUpdate(initial)
 
-    // Subscribe to state changes
-    const frameEntityIds = FRAME_ENTITIES.map(f => f.entityId)
+    // Subscribe to state changes for relevant entities
+    const watchedEntities = [
+      ...FRAME_CONFIGS.flatMap(f => [f.statusEntity, f.playlistEntity, f.skipVotesEntity]),
+      MEDIA_LIBRARY_ENTITY,
+      ROTATION_INTERVAL_ENTITY
+    ]
+
     this.stateChangeSubscription = await haWebSocket.subscribeStateChanges(
       async (entityId) => {
-        if (frameEntityIds.includes(entityId)) {
-          const updated = await this.getFrameStates()
+        if (watchedEntities.includes(entityId)) {
+          const updated = await this.getState()
           onUpdate(updated)
         }
       }
@@ -103,64 +145,78 @@ export class PhotoFrameService {
     }
   }
 
-  // Display a specific image on a frame
-  async displayImage(frameEntityId: string, imageUrl: string): Promise<void> {
-    await haWebSocket.callService('media_player', 'play_media', {
-      media_content_id: imageUrl,
-      media_content_type: 'image'
+  // Set playlist for a frame
+  async setFramePlaylist(frameId: string, playlist: string): Promise<void> {
+    await haWebSocket.callService('script', 'frame_set_playlist', {
+      frame_id: frameId,
+      playlist
+    })
+  }
+
+  // Vote to skip current media on a frame
+  async voteSkip(frameId: string): Promise<void> {
+    await haWebSocket.callService('script', 'frame_vote_skip', {
+      frame_id: frameId
+    })
+  }
+
+  // Go to next media on a frame
+  async nextMedia(frameId: string): Promise<void> {
+    await haWebSocket.callService('script', 'frame_next', {
+      frame_id: frameId
+    })
+  }
+
+  // Go to previous media on a frame
+  async previousMedia(frameId: string): Promise<void> {
+    await haWebSocket.callService('script', 'frame_previous', {
+      frame_id: frameId
+    })
+  }
+
+  // Update media library (add/remove/update items)
+  async updateMediaLibrary(items: MediaItem[]): Promise<void> {
+    await haWebSocket.callService('input_text', 'set_value', {
+      value: JSON.stringify(items)
     }, {
-      entity_id: frameEntityId
+      entity_id: MEDIA_LIBRARY_ENTITY
     })
   }
 
-  // Display image on all frames
-  async displayImageOnAll(imageUrl: string): Promise<void> {
-    await haWebSocket.callService('media_player', 'play_media', {
-      media_content_id: imageUrl,
-      media_content_type: 'image'
-    }, {
-      entity_id: FRAME_ENTITIES.map(f => f.entityId)
-    })
+  // Add a new media item
+  async addMediaItem(item: Omit<MediaItem, 'id' | 'votes'>): Promise<void> {
+    const state = await this.getState()
+    const newItem: MediaItem = {
+      ...item,
+      id: Date.now().toString(),
+      votes: 0
+    }
+    await this.updateMediaLibrary([...state.mediaLibrary, newItem])
   }
 
-  // Turn frame on
-  async turnOn(frameEntityId: string): Promise<void> {
-    await haWebSocket.callService('media_player', 'turn_on', undefined, {
-      entity_id: frameEntityId
-    })
+  // Upvote a media item
+  async upvoteMedia(itemId: string): Promise<void> {
+    const state = await this.getState()
+    const items = state.mediaLibrary.map(item =>
+      item.id === itemId ? { ...item, votes: item.votes + 1 } : item
+    )
+    await this.updateMediaLibrary(items)
   }
 
-  // Turn frame off
-  async turnOff(frameEntityId: string): Promise<void> {
-    await haWebSocket.callService('media_player', 'turn_off', undefined, {
-      entity_id: frameEntityId
-    })
+  // Downvote a media item
+  async downvoteMedia(itemId: string): Promise<void> {
+    const state = await this.getState()
+    const items = state.mediaLibrary.map(item =>
+      item.id === itemId ? { ...item, votes: item.votes - 1 } : item
+    )
+    await this.updateMediaLibrary(items)
   }
 
-  // Next image in playlist
-  async nextImage(frameEntityId: string): Promise<void> {
-    await haWebSocket.callService('media_player', 'media_next_track', undefined, {
-      entity_id: frameEntityId
-    })
-  }
-
-  // Previous image in playlist
-  async previousImage(frameEntityId: string): Promise<void> {
-    await haWebSocket.callService('media_player', 'media_previous_track', undefined, {
-      entity_id: frameEntityId
-    })
-  }
-
-  // Fire event to trigger HA automation for playlist management
-  async firePlaylistEvent(action: string, data: Record<string, unknown>): Promise<void> {
-    await haWebSocket.callService('script', 'turn_on', {
-      entity_id: 'script.photo_frame_playlist_action',
-      variables: {
-        action,
-        ...data,
-        timestamp: new Date().toISOString()
-      }
-    })
+  // Remove a media item
+  async removeMediaItem(itemId: string): Promise<void> {
+    const state = await this.getState()
+    const items = state.mediaLibrary.filter(item => item.id !== itemId)
+    await this.updateMediaLibrary(items)
   }
 }
 

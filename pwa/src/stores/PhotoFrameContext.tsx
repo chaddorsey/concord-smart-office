@@ -1,51 +1,54 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { photoFrameService, type PhotoFrame } from '../services/photoFrameService'
-import { MOCK_PHOTO_FRAMES } from '../services/mockData'
+import { photoFrameService, type PhotoFrame, type MediaItem, type PhotoFrameState } from '../services/photoFrameService'
 import { useAuth } from './AuthContext'
 import { usePresence } from './PresenceContext'
 
-// Demo images for the playlist (in production, these would come from HA)
-const DEMO_PLAYLIST: PlaylistImage[] = [
-  { id: '1', url: '/images/office-1.jpg', title: 'Team Building 2024', addedBy: 'Alice', addedAt: '2024-01-15' },
-  { id: '2', url: '/images/office-2.jpg', title: 'Product Launch', addedBy: 'Bob', addedAt: '2024-01-10' },
-  { id: '3', url: '/images/office-3.jpg', title: 'Holiday Party', addedBy: 'Carol', addedAt: '2024-01-05' },
-  { id: '4', url: '/images/nature-1.jpg', title: 'Mountain View', addedBy: 'Dave', addedAt: '2024-01-01' },
-  { id: '5', url: '/images/nature-2.jpg', title: 'Ocean Sunset', addedBy: 'Eve', addedAt: '2023-12-20' },
-  { id: '6', url: '/images/art-1.jpg', title: 'Abstract Art', addedBy: 'Frank', addedAt: '2023-12-15' },
+// Demo media for mock mode
+const DEMO_MEDIA: MediaItem[] = [
+  { id: '1', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920', type: 'image', title: 'Modern Office', playlist: 'Office Highlights', votes: 5 },
+  { id: '2', url: 'https://images.unsplash.com/photo-1497215842964-222b430dc094?w=1920', type: 'image', title: 'Workspace', playlist: 'Office Highlights', votes: 3 },
+  { id: '3', url: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1920', type: 'image', title: 'Team Collaboration', playlist: 'Team Photos', votes: 8 },
+  { id: '4', url: 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=1920', type: 'image', title: 'Meeting Room', playlist: 'Team Photos', votes: 2 },
+  { id: '5', url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920', type: 'image', title: 'Mountains', playlist: 'Nature', votes: 10 },
+  { id: '6', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1920', type: 'image', title: 'Beach', playlist: 'Nature', votes: 7 },
+  { id: '7', url: 'https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=1920', type: 'image', title: 'Abstract Art', playlist: 'Art', votes: 4 },
+  { id: '8', url: 'https://images.unsplash.com/photo-1549490349-8643362247b5?w=1920', type: 'image', title: 'Colorful Pattern', playlist: 'Art', votes: 6 },
 ]
 
-export interface PlaylistImage {
-  id: string
-  url: string
-  title: string
-  addedBy: string
-  addedAt: string
-}
+const DEMO_FRAMES: PhotoFrame[] = [
+  { id: '1', name: 'Frame 1 - Lobby', playlist: 'Office Highlights', currentIndex: 0, skipVotes: 0, isOnline: true },
+  { id: '2', name: 'Frame 2 - Kitchen', playlist: 'Team Photos', currentIndex: 0, skipVotes: 0, isOnline: true },
+  { id: '3', name: 'Frame 3 - Meeting Room', playlist: 'Nature', currentIndex: 0, skipVotes: 0, isOnline: false },
+  { id: '4', name: 'Frame 4 - Lounge', playlist: 'Art', currentIndex: 0, skipVotes: 0, isOnline: true },
+]
 
-interface ImageVotes {
-  upvoters: Set<string>
-  downvoters: Set<string>
-}
-
-interface PhotoFrameState {
-  frames: PhotoFrame[]
-  playlist: PlaylistImage[]
-  votes: Map<string, ImageVotes>
+interface LocalState {
+  selectedFrameId: string | null
+  selectedPlaylist: string | null
   userVotes: Map<string, 'up' | 'down'>
-  currentImageIndex: number
   isLoading: boolean
   error: string | null
 }
 
-interface PhotoFrameContextValue extends PhotoFrameState {
-  upvote: (imageId: string) => void
-  downvote: (imageId: string) => void
-  clearVote: (imageId: string) => void
-  getImageScore: (imageId: string) => number
-  getUserVote: (imageId: string) => 'up' | 'down' | null
-  nextImage: () => void
-  previousImage: () => void
-  goToImage: (index: number) => void
+interface PhotoFrameContextValue extends PhotoFrameState, LocalState {
+  // Frame actions
+  selectFrame: (frameId: string | null) => void
+  setFramePlaylist: (frameId: string, playlist: string) => Promise<void>
+  voteSkipFrame: (frameId: string) => Promise<void>
+  nextFrameMedia: (frameId: string) => Promise<void>
+  previousFrameMedia: (frameId: string) => Promise<void>
+
+  // Playlist browsing
+  selectPlaylist: (playlist: string | null) => void
+  getPlaylistMedia: (playlist: string) => MediaItem[]
+  getCurrentFrameMedia: (frameId: string) => MediaItem | null
+
+  // Media voting
+  upvoteMedia: (itemId: string) => Promise<void>
+  downvoteMedia: (itemId: string) => Promise<void>
+  getUserVote: (itemId: string) => 'up' | 'down' | null
+
+  // Permissions
   canControl: boolean
 }
 
@@ -55,64 +58,64 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, isMockMode } = useAuth()
   const { currentUserId, isCurrentUserPresent } = usePresence()
 
-  const [state, setState] = useState<PhotoFrameState>({
+  const [haState, setHaState] = useState<PhotoFrameState>({
     frames: [],
-    playlist: DEMO_PLAYLIST,
-    votes: new Map(),
+    mediaLibrary: [],
+    playlists: [],
+    rotationInterval: 30
+  })
+
+  const [localState, setLocalState] = useState<LocalState>({
+    selectedFrameId: null,
+    selectedPlaylist: null,
     userVotes: new Map(),
-    currentImageIndex: 0,
     isLoading: false,
     error: null
   })
 
-  // Subscribe to frame state changes
+  // Subscribe to HA state changes
   useEffect(() => {
     if (!isAuthenticated) {
-      setState(prev => ({
-        ...prev,
+      setHaState({
         frames: [],
-        isLoading: false
-      }))
+        mediaLibrary: [],
+        playlists: [],
+        rotationInterval: 30
+      })
+      setLocalState(prev => ({ ...prev, isLoading: false }))
       return
     }
 
-    // Use mock frame data in mock mode
+    // Use mock data in mock mode
     if (isMockMode) {
-      const mockFrames: PhotoFrame[] = MOCK_PHOTO_FRAMES.map(f => ({
-        ...f,
-        currentImage: null
-      }))
-      setState(prev => ({
-        ...prev,
-        frames: mockFrames,
-        isLoading: false,
-        error: null
-      }))
+      setHaState({
+        frames: DEMO_FRAMES,
+        mediaLibrary: DEMO_MEDIA,
+        playlists: ['Office Highlights', 'Team Photos', 'Nature', 'Art'],
+        rotationInterval: 30
+      })
+      setLocalState(prev => ({ ...prev, isLoading: false, error: null }))
       return
     }
 
-    setState(prev => ({ ...prev, isLoading: true }))
+    setLocalState(prev => ({ ...prev, isLoading: true }))
 
     let unsubscribe: (() => void) | null = null
 
     photoFrameService
-      .subscribeToChanges((frames) => {
-        setState(prev => ({
-          ...prev,
-          frames,
-          isLoading: false,
-          error: null
-        }))
+      .subscribeToChanges((state) => {
+        setHaState(state)
+        setLocalState(prev => ({ ...prev, isLoading: false, error: null }))
       })
       .then((unsub) => {
         unsubscribe = unsub
       })
       .catch((err) => {
         console.error('[PhotoFrame] Failed to subscribe:', err)
-        setState(prev => ({
+        setLocalState(prev => ({
           ...prev,
           isLoading: false,
-          error: err instanceof Error ? err.message : 'Failed to connect to photo frames'
+          error: err instanceof Error ? err.message : 'Failed to connect'
         }))
       })
 
@@ -123,143 +126,218 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated, isMockMode])
 
-  const upvote = useCallback((imageId: string) => {
+  // Frame selection
+  const selectFrame = useCallback((frameId: string | null) => {
+    setLocalState(prev => ({ ...prev, selectedFrameId: frameId }))
+  }, [])
+
+  // Playlist selection
+  const selectPlaylist = useCallback((playlist: string | null) => {
+    setLocalState(prev => ({ ...prev, selectedPlaylist: playlist }))
+  }, [])
+
+  // Get media for a playlist
+  const getPlaylistMedia = useCallback((playlist: string): MediaItem[] => {
+    return haState.mediaLibrary
+      .filter(item => item.playlist === playlist)
+      .sort((a, b) => b.votes - a.votes)
+  }, [haState.mediaLibrary])
+
+  // Get current media for a frame
+  const getCurrentFrameMedia = useCallback((frameId: string): MediaItem | null => {
+    const frame = haState.frames.find(f => f.id === frameId)
+    if (!frame) return null
+
+    const playlistMedia = getPlaylistMedia(frame.playlist)
+    if (playlistMedia.length === 0) return null
+
+    const index = frame.currentIndex % playlistMedia.length
+    return playlistMedia[index] || null
+  }, [haState.frames, getPlaylistMedia])
+
+  // Set frame playlist
+  const setFramePlaylist = useCallback(async (frameId: string, playlist: string) => {
+    if (!isCurrentUserPresent) return
+
+    if (isMockMode) {
+      setHaState(prev => ({
+        ...prev,
+        frames: prev.frames.map(f =>
+          f.id === frameId ? { ...f, playlist, currentIndex: 0 } : f
+        )
+      }))
+      return
+    }
+
+    try {
+      await photoFrameService.setFramePlaylist(frameId, playlist)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to set playlist:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode])
+
+  // Vote to skip frame media
+  const voteSkipFrame = useCallback(async (frameId: string) => {
+    if (!isCurrentUserPresent) return
+
+    if (isMockMode) {
+      setHaState(prev => ({
+        ...prev,
+        frames: prev.frames.map(f =>
+          f.id === frameId ? { ...f, skipVotes: f.skipVotes + 1 } : f
+        )
+      }))
+      return
+    }
+
+    try {
+      await photoFrameService.voteSkip(frameId)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to vote skip:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode])
+
+  // Next frame media
+  const nextFrameMedia = useCallback(async (frameId: string) => {
+    if (!isCurrentUserPresent) return
+
+    if (isMockMode) {
+      setHaState(prev => ({
+        ...prev,
+        frames: prev.frames.map(f =>
+          f.id === frameId ? { ...f, currentIndex: f.currentIndex + 1, skipVotes: 0 } : f
+        )
+      }))
+      return
+    }
+
+    try {
+      await photoFrameService.nextMedia(frameId)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to go to next:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode])
+
+  // Previous frame media
+  const previousFrameMedia = useCallback(async (frameId: string) => {
+    if (!isCurrentUserPresent) return
+
+    if (isMockMode) {
+      setHaState(prev => ({
+        ...prev,
+        frames: prev.frames.map(f =>
+          f.id === frameId ? { ...f, currentIndex: Math.max(0, f.currentIndex - 1), skipVotes: 0 } : f
+        )
+      }))
+      return
+    }
+
+    try {
+      await photoFrameService.previousMedia(frameId)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to go to previous:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode])
+
+  // Upvote media
+  const upvoteMedia = useCallback(async (itemId: string) => {
     if (!currentUserId || !isCurrentUserPresent) return
 
-    setState(prev => {
-      const newVotes = new Map(prev.votes)
-      const newUserVotes = new Map(prev.userVotes)
+    const currentVote = localState.userVotes.get(itemId)
 
-      // Get or create image votes
-      let imageVotes = newVotes.get(imageId)
-      if (!imageVotes) {
-        imageVotes = { upvoters: new Set(), downvoters: new Set() }
-        newVotes.set(imageId, imageVotes)
-      }
-
-      // Remove from downvoters if present
-      imageVotes.downvoters.delete(currentUserId)
-
-      // Toggle upvote
-      if (imageVotes.upvoters.has(currentUserId)) {
-        imageVotes.upvoters.delete(currentUserId)
-        newUserVotes.delete(imageId)
+    // Update local vote state
+    setLocalState(prev => {
+      const newVotes = new Map(prev.userVotes)
+      if (currentVote === 'up') {
+        newVotes.delete(itemId)
       } else {
-        imageVotes.upvoters.add(currentUserId)
-        newUserVotes.set(imageId, 'up')
+        newVotes.set(itemId, 'up')
       }
-
-      return {
-        ...prev,
-        votes: newVotes,
-        userVotes: newUserVotes
-      }
+      return { ...prev, userVotes: newVotes }
     })
-  }, [currentUserId, isCurrentUserPresent])
 
-  const downvote = useCallback((imageId: string) => {
+    if (isMockMode) {
+      setHaState(prev => ({
+        ...prev,
+        mediaLibrary: prev.mediaLibrary.map(item => {
+          if (item.id !== itemId) return item
+          let delta = 1
+          if (currentVote === 'up') delta = -1 // Remove upvote
+          if (currentVote === 'down') delta = 2 // Remove downvote, add upvote
+          return { ...item, votes: item.votes + delta }
+        })
+      }))
+      return
+    }
+
+    try {
+      await photoFrameService.upvoteMedia(itemId)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to upvote:', err)
+    }
+  }, [currentUserId, isCurrentUserPresent, localState.userVotes, isMockMode])
+
+  // Downvote media
+  const downvoteMedia = useCallback(async (itemId: string) => {
     if (!currentUserId || !isCurrentUserPresent) return
 
-    setState(prev => {
-      const newVotes = new Map(prev.votes)
-      const newUserVotes = new Map(prev.userVotes)
+    const currentVote = localState.userVotes.get(itemId)
 
-      // Get or create image votes
-      let imageVotes = newVotes.get(imageId)
-      if (!imageVotes) {
-        imageVotes = { upvoters: new Set(), downvoters: new Set() }
-        newVotes.set(imageId, imageVotes)
-      }
-
-      // Remove from upvoters if present
-      imageVotes.upvoters.delete(currentUserId)
-
-      // Toggle downvote
-      if (imageVotes.downvoters.has(currentUserId)) {
-        imageVotes.downvoters.delete(currentUserId)
-        newUserVotes.delete(imageId)
+    // Update local vote state
+    setLocalState(prev => {
+      const newVotes = new Map(prev.userVotes)
+      if (currentVote === 'down') {
+        newVotes.delete(itemId)
       } else {
-        imageVotes.downvoters.add(currentUserId)
-        newUserVotes.set(imageId, 'down')
+        newVotes.set(itemId, 'down')
       }
-
-      return {
-        ...prev,
-        votes: newVotes,
-        userVotes: newUserVotes
-      }
+      return { ...prev, userVotes: newVotes }
     })
-  }, [currentUserId, isCurrentUserPresent])
 
-  const clearVote = useCallback((imageId: string) => {
-    if (!currentUserId) return
-
-    setState(prev => {
-      const newVotes = new Map(prev.votes)
-      const newUserVotes = new Map(prev.userVotes)
-
-      const imageVotes = newVotes.get(imageId)
-      if (imageVotes) {
-        imageVotes.upvoters.delete(currentUserId)
-        imageVotes.downvoters.delete(currentUserId)
-      }
-      newUserVotes.delete(imageId)
-
-      return {
+    if (isMockMode) {
+      setHaState(prev => ({
         ...prev,
-        votes: newVotes,
-        userVotes: newUserVotes
-      }
-    })
-  }, [currentUserId])
+        mediaLibrary: prev.mediaLibrary.map(item => {
+          if (item.id !== itemId) return item
+          let delta = -1
+          if (currentVote === 'down') delta = 1 // Remove downvote
+          if (currentVote === 'up') delta = -2 // Remove upvote, add downvote
+          return { ...item, votes: item.votes + delta }
+        })
+      }))
+      return
+    }
 
-  const getImageScore = useCallback((imageId: string): number => {
-    const imageVotes = state.votes.get(imageId)
-    if (!imageVotes) return 0
-    return imageVotes.upvoters.size - imageVotes.downvoters.size
-  }, [state.votes])
+    try {
+      await photoFrameService.downvoteMedia(itemId)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to downvote:', err)
+    }
+  }, [currentUserId, isCurrentUserPresent, localState.userVotes, isMockMode])
 
-  const getUserVote = useCallback((imageId: string): 'up' | 'down' | null => {
-    return state.userVotes.get(imageId) || null
-  }, [state.userVotes])
-
-  const nextImage = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      currentImageIndex: (prev.currentImageIndex + 1) % prev.playlist.length
-    }))
-  }, [])
-
-  const previousImage = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      currentImageIndex: prev.currentImageIndex === 0
-        ? prev.playlist.length - 1
-        : prev.currentImageIndex - 1
-    }))
-  }, [])
-
-  const goToImage = useCallback((index: number) => {
-    setState(prev => ({
-      ...prev,
-      currentImageIndex: Math.max(0, Math.min(index, prev.playlist.length - 1))
-    }))
-  }, [])
+  // Get user's vote on a media item
+  const getUserVote = useCallback((itemId: string): 'up' | 'down' | null => {
+    return localState.userVotes.get(itemId) || null
+  }, [localState.userVotes])
 
   const canControl = isCurrentUserPresent
 
   return (
     <PhotoFrameContext.Provider
       value={{
-        ...state,
-        upvote,
-        downvote,
-        clearVote,
-        getImageScore,
+        ...haState,
+        ...localState,
+        selectFrame,
+        setFramePlaylist,
+        voteSkipFrame,
+        nextFrameMedia,
+        previousFrameMedia,
+        selectPlaylist,
+        getPlaylistMedia,
+        getCurrentFrameMedia,
+        upvoteMedia,
+        downvoteMedia,
         getUserVote,
-        nextImage,
-        previousImage,
-        goToImage,
         canControl
       }}
     >
@@ -275,3 +353,6 @@ export function usePhotoFrames() {
   }
   return context
 }
+
+// Re-export types
+export type { PhotoFrame, MediaItem, PhotoFrameState }

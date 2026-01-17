@@ -1,0 +1,295 @@
+# Concord Smart Office - Photo Frames Package
+# Manages 4 digital photo frames with playlist and voting support
+
+# Frame configuration - which playlist each frame displays
+input_select:
+  frame_1_playlist:
+    name: "Frame 1 - Playlist"
+    options:
+      - "Office Highlights"
+      - "Team Photos"
+      - "Nature"
+      - "Art"
+    initial: "Office Highlights"
+    icon: mdi:image-multiple
+
+  frame_2_playlist:
+    name: "Frame 2 - Playlist"
+    options:
+      - "Office Highlights"
+      - "Team Photos"
+      - "Nature"
+      - "Art"
+    initial: "Team Photos"
+    icon: mdi:image-multiple
+
+  frame_3_playlist:
+    name: "Frame 3 - Playlist"
+    options:
+      - "Office Highlights"
+      - "Team Photos"
+      - "Nature"
+      - "Art"
+    initial: "Nature"
+    icon: mdi:image-multiple
+
+  frame_4_playlist:
+    name: "Frame 4 - Playlist"
+    options:
+      - "Office Highlights"
+      - "Team Photos"
+      - "Nature"
+      - "Art"
+    initial: "Art"
+    icon: mdi:image-multiple
+
+# Current media index for each frame (for rotation)
+input_number:
+  frame_1_index:
+    name: "Frame 1 - Current Index"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_2_index:
+    name: "Frame 2 - Current Index"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_3_index:
+    name: "Frame 3 - Current Index"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_4_index:
+    name: "Frame 4 - Current Index"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
+  # Voting for skip (if enough people vote, skip to next)
+  frame_1_skip_votes:
+    name: "Frame 1 - Skip Votes"
+    min: 0
+    max: 50
+    step: 1
+    initial: 0
+    icon: mdi:vote
+
+  frame_2_skip_votes:
+    name: "Frame 2 - Skip Votes"
+    min: 0
+    max: 50
+    step: 1
+    initial: 0
+    icon: mdi:vote
+
+  frame_3_skip_votes:
+    name: "Frame 3 - Skip Votes"
+    min: 0
+    max: 50
+    step: 1
+    initial: 0
+    icon: mdi:vote
+
+  frame_4_skip_votes:
+    name: "Frame 4 - Skip Votes"
+    min: 0
+    max: 50
+    step: 1
+    initial: 0
+    icon: mdi:vote
+
+# Rotation interval per frame (seconds)
+input_number:
+  frame_rotation_interval:
+    name: "Frame Rotation Interval"
+    min: 10
+    max: 300
+    step: 5
+    initial: 30
+    unit_of_measurement: "seconds"
+    icon: mdi:timer
+
+# Media library stored as JSON in input_text (simple approach)
+# In production, this could be a database or file-based system
+input_text:
+  media_library:
+    name: "Media Library JSON"
+    max: 65535
+    initial: >
+      [
+        {"id": "1", "url": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920", "type": "image", "title": "Modern Office", "playlist": "Office Highlights", "votes": 5},
+        {"id": "2", "url": "https://images.unsplash.com/photo-1497215842964-222b430dc094?w=1920", "type": "image", "title": "Workspace", "playlist": "Office Highlights", "votes": 3},
+        {"id": "3", "url": "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1920", "type": "image", "title": "Team Collaboration", "playlist": "Team Photos", "votes": 8},
+        {"id": "4", "url": "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=1920", "type": "image", "title": "Meeting Room", "playlist": "Team Photos", "votes": 2},
+        {"id": "5", "url": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920", "type": "image", "title": "Mountains", "playlist": "Nature", "votes": 10},
+        {"id": "6", "url": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1920", "type": "image", "title": "Beach", "playlist": "Nature", "votes": 7},
+        {"id": "7", "url": "https://images.unsplash.com/photo-1541961017774-22349e4a1262?w=1920", "type": "image", "title": "Abstract Art", "playlist": "Art", "votes": 4},
+        {"id": "8", "url": "https://images.unsplash.com/photo-1549490349-8643362247b5?w=1920", "type": "image", "title": "Colorful Pattern", "playlist": "Art", "votes": 6}
+      ]
+
+# Template sensors for frame status
+template:
+  - sensor:
+      - name: "Frame 1 Status"
+        unique_id: frame_1_status
+        state: "{{ states('input_select.frame_1_playlist') }}"
+        attributes:
+          playlist: "{{ states('input_select.frame_1_playlist') }}"
+          index: "{{ states('input_number.frame_1_index') | int(0) }}"
+          skip_votes: "{{ states('input_number.frame_1_skip_votes') | int(0) }}"
+          frame_id: 1
+
+      - name: "Frame 2 Status"
+        unique_id: frame_2_status
+        state: "{{ states('input_select.frame_2_playlist') }}"
+        attributes:
+          playlist: "{{ states('input_select.frame_2_playlist') }}"
+          index: "{{ states('input_number.frame_2_index') | int(0) }}"
+          skip_votes: "{{ states('input_number.frame_2_skip_votes') | int(0) }}"
+          frame_id: 2
+
+      - name: "Frame 3 Status"
+        unique_id: frame_3_status
+        state: "{{ states('input_select.frame_3_playlist') }}"
+        attributes:
+          playlist: "{{ states('input_select.frame_3_playlist') }}"
+          index: "{{ states('input_number.frame_3_index') | int(0) }}"
+          skip_votes: "{{ states('input_number.frame_3_skip_votes') | int(0) }}"
+          frame_id: 3
+
+      - name: "Frame 4 Status"
+        unique_id: frame_4_status
+        state: "{{ states('input_select.frame_4_playlist') }}"
+        attributes:
+          playlist: "{{ states('input_select.frame_4_playlist') }}"
+          index: "{{ states('input_number.frame_4_index') | int(0) }}"
+          skip_votes: "{{ states('input_number.frame_4_skip_votes') | int(0) }}"
+          frame_id: 4
+
+      - name: "Frames Overview"
+        unique_id: frames_overview
+        state: "{{ 4 }}"
+        attributes:
+          frame_count: 4
+          rotation_interval: "{{ states('input_number.frame_rotation_interval') | int(30) }}"
+
+# Scripts for frame control
+script:
+  frame_next:
+    alias: "Frame - Next Media"
+    fields:
+      frame_id:
+        description: "Frame number (1-4)"
+        example: "1"
+    sequence:
+      - service: input_number.increment
+        target:
+          entity_id: "input_number.frame_{{ frame_id }}_index"
+      - service: input_number.set_value
+        target:
+          entity_id: "input_number.frame_{{ frame_id }}_skip_votes"
+        data:
+          value: 0
+
+  frame_previous:
+    alias: "Frame - Previous Media"
+    fields:
+      frame_id:
+        description: "Frame number (1-4)"
+        example: "1"
+    sequence:
+      - service: input_number.decrement
+        target:
+          entity_id: "input_number.frame_{{ frame_id }}_index"
+      - service: input_number.set_value
+        target:
+          entity_id: "input_number.frame_{{ frame_id }}_skip_votes"
+        data:
+          value: 0
+
+  frame_vote_skip:
+    alias: "Frame - Vote to Skip"
+    fields:
+      frame_id:
+        description: "Frame number (1-4)"
+        example: "1"
+    sequence:
+      - service: input_number.increment
+        target:
+          entity_id: "input_number.frame_{{ frame_id }}_skip_votes"
+
+  frame_set_playlist:
+    alias: "Frame - Set Playlist"
+    fields:
+      frame_id:
+        description: "Frame number (1-4)"
+        example: "1"
+      playlist:
+        description: "Playlist name"
+        example: "Nature"
+    sequence:
+      - service: input_select.select_option
+        target:
+          entity_id: "input_select.frame_{{ frame_id }}_playlist"
+        data:
+          option: "{{ playlist }}"
+      - service: input_number.set_value
+        target:
+          entity_id: "input_number.frame_{{ frame_id }}_index"
+        data:
+          value: 0
+
+# Automations for frame rotation and voting
+automation:
+  - id: frame_auto_rotate
+    alias: "Frames - Auto Rotate"
+    description: "Automatically advance frames at set interval"
+    trigger:
+      - platform: time_pattern
+        seconds: "/30"  # Check every 30 seconds
+    condition:
+      - condition: template
+        value_template: "{{ now().second | int == 0 }}"
+    action:
+      - service: script.frame_next
+        data:
+          frame_id: "1"
+      - service: script.frame_next
+        data:
+          frame_id: "2"
+      - service: script.frame_next
+        data:
+          frame_id: "3"
+      - service: script.frame_next
+        data:
+          frame_id: "4"
+
+  - id: frame_skip_on_votes
+    alias: "Frames - Skip on Vote Threshold"
+    description: "Skip to next media when skip votes reach threshold"
+    trigger:
+      - platform: state
+        entity_id:
+          - input_number.frame_1_skip_votes
+          - input_number.frame_2_skip_votes
+          - input_number.frame_3_skip_votes
+          - input_number.frame_4_skip_votes
+    condition:
+      - condition: template
+        value_template: "{{ trigger.to_state.state | int(0) >= 3 }}"
+    action:
+      - service: script.frame_next
+        data:
+          frame_id: "{{ trigger.entity_id | regex_findall('frame_(\\d+)_skip') | first }}"

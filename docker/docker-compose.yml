@@ -15,5 +15,22 @@ services:
       retries: 3
       start_period: 60s
 
+  frame-display:
+    build:
+      context: ../frame-display
+      dockerfile: Dockerfile
+    container_name: concord-frames
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+      - HA_URL=http://homeassistant:8123
+    depends_on:
+      - homeassistant
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 volumes:
   ha-config:
