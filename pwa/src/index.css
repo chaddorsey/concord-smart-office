@@ -10,3 +10,20 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* QR Scanner animations */
+@keyframes scan {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(250px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.animate-scan {
+  animation: scan 2s ease-in-out infinite;
+}
