@@ -33,9 +33,20 @@ export default function QRScanner({ onScan, onError, onStop, isActive }: QRScann
     if (barcode?.rawValue) {
       hasScannedRef.current = true
       console.log('[QR] Native scanned:', barcode.rawValue)
+
+      // Stop scanning first, then notify
+      setScannerActive(false)
+      BarcodeScanner.stopScan().catch(() => {})
+      if (scanListenerRef.current) {
+        scanListenerRef.current.remove().catch(() => {})
+        scanListenerRef.current = null
+      }
+
+      // Notify parent
       onScan(barcode.rawValue)
+      onStop?.()
     }
-  }, [onScan])
+  }, [onScan, onStop])
 
   useEffect(() => {
     if (!isActive) {
@@ -72,7 +83,7 @@ export default function QRScanner({ onScan, onError, onStop, isActive }: QRScann
 
         setHasPermission(true)
 
-        // Make WebView transparent so camera shows through
+        // Make page transparent so camera shows through
         setScannerActive(true)
 
         // Add listener for barcodes
@@ -115,37 +126,57 @@ export default function QRScanner({ onScan, onError, onStop, isActive }: QRScann
     }
   }, [isActive, isNative, onError, handleBarcodesScanned])
 
-  // Native scanner - camera renders fullscreen behind webview
-  // We show a transparent viewport with targeting overlay
+  // Handle stop button
+  const handleStop = () => {
+    setScannerActive(false)
+    BarcodeScanner.stopScan().catch(() => {})
+    if (scanListenerRef.current) {
+      scanListenerRef.current.remove().catch(() => {})
+      scanListenerRef.current = null
+    }
+    onStop?.()
+  }
+
+  // Native scanner - fullscreen modal with camera showing through center
   if (isNative && isActive && hasPermission) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col">
-        {/* Transparent camera viewport */}
-        <div className="flex-1 relative" style={{ background: 'transparent' }}>
-          {/* Scanning frame overlay */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-72 h-72 relative">
-              {/* Corner brackets */}
-              <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-white rounded-tl-lg" />
-              <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-white rounded-tr-lg" />
-              <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-white rounded-bl-lg" />
-              <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-white rounded-br-lg" />
-              {/* Scanning line */}
-              <div className="absolute inset-0 overflow-hidden">
-                <div className="w-full h-1 bg-white opacity-75 animate-scan" />
-              </div>
-            </div>
-          </div>
-          {/* Instructions */}
-          <div className="absolute bottom-8 left-0 right-0 text-center">
-            <p className="text-white text-lg font-medium drop-shadow-lg">Point camera at QR code</p>
+      <div className="fixed inset-0 z-50">
+        {/* Dark overlay with transparent center cutout */}
+        <div className="absolute inset-0">
+          {/* Top dark area */}
+          <div className="absolute top-0 left-0 right-0 h-[calc(50%-140px)] bg-black/70" />
+          {/* Bottom dark area */}
+          <div className="absolute bottom-0 left-0 right-0 h-[calc(50%-140px)] bg-black/70" />
+          {/* Left dark area (middle row) */}
+          <div className="absolute top-[calc(50%-140px)] left-0 w-[calc(50%-140px)] h-[280px] bg-black/70" />
+          {/* Right dark area (middle row) */}
+          <div className="absolute top-[calc(50%-140px)] right-0 w-[calc(50%-140px)] h-[280px] bg-black/70" />
+        </div>
+
+        {/* Scanning frame */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[280px] h-[280px]">
+          {/* Corner brackets */}
+          <div className="absolute top-0 left-0 w-12 h-12 border-t-4 border-l-4 border-white rounded-tl-lg" />
+          <div className="absolute top-0 right-0 w-12 h-12 border-t-4 border-r-4 border-white rounded-tr-lg" />
+          <div className="absolute bottom-0 left-0 w-12 h-12 border-b-4 border-l-4 border-white rounded-bl-lg" />
+          <div className="absolute bottom-0 right-0 w-12 h-12 border-b-4 border-r-4 border-white rounded-br-lg" />
+          {/* Scanning line */}
+          <div className="absolute inset-4 overflow-hidden">
+            <div className="w-full h-0.5 bg-green-400 animate-scan" />
           </div>
         </div>
-        {/* Stop button */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 pb-8">
+
+        {/* Instructions at top */}
+        <div className="absolute top-16 left-0 right-0 text-center">
+          <p className="text-white text-xl font-semibold">Scan QR Code</p>
+          <p className="text-white/70 text-sm mt-1">Position the code within the frame</p>
+        </div>
+
+        {/* Cancel button at bottom */}
+        <div className="absolute bottom-12 left-4 right-4">
           <button
-            onClick={onStop}
-            className="w-full py-4 bg-white/90 text-gray-700 rounded-xl font-medium"
+            onClick={handleStop}
+            className="w-full py-4 bg-white text-gray-900 rounded-xl font-semibold text-lg shadow-lg"
           >
             Cancel
           </button>
@@ -154,28 +185,27 @@ export default function QRScanner({ onScan, onError, onStop, isActive }: QRScann
     )
   }
 
+  // Loading or error state
   return (
-    <div className="relative">
-      <div className="w-full aspect-square bg-gray-900 rounded-xl overflow-hidden flex items-center justify-center">
-        {isStarting ? (
-          <div className="text-center">
-            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-white">Starting camera...</p>
-          </div>
-        ) : hasPermission === false ? (
-          <div className="text-center p-4">
-            <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-            </svg>
-            <p className="text-white font-medium">Camera access denied</p>
-            <p className="text-gray-400 text-sm mt-2">Please enable camera permissions in your device settings</p>
-          </div>
-        ) : (
-          <div className="text-center p-4">
-            <p className="text-gray-400">Camera preview</p>
-          </div>
-        )}
-      </div>
+    <div className="aspect-square bg-gray-900 rounded-xl overflow-hidden flex items-center justify-center">
+      {isStarting ? (
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-white">Starting camera...</p>
+        </div>
+      ) : hasPermission === false ? (
+        <div className="text-center p-4">
+          <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+          </svg>
+          <p className="text-white font-medium">Camera access denied</p>
+          <p className="text-gray-400 text-sm mt-2">Please enable camera permissions in your device settings</p>
+        </div>
+      ) : (
+        <div className="text-center p-4">
+          <p className="text-gray-400">Initializing...</p>
+        </div>
+      )}
     </div>
   )
 }

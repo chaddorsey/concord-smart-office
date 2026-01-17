@@ -55,10 +55,14 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     // Use mock data in mock mode
     if (isMockMode) {
       const mockStaff = MOCK_STAFF.map(s => ({ ...s }))
+      // Re-read currentUserId from localStorage (may have been set by enableMockMode)
+      const storedUserId = localStorage.getItem(STORAGE_KEY_CURRENT_USER)
       setState(prev => {
-        const currentUser = mockStaff.find(s => s.id === prev.currentUserId)
+        const userId = storedUserId || prev.currentUserId
+        const currentUser = mockStaff.find(s => s.id === userId)
         return {
           ...prev,
+          currentUserId: userId,
           staff: mockStaff,
           presentCount: mockStaff.filter(s => s.isPresent).length,
           isCurrentUserPresent: currentUser?.isPresent ?? false,

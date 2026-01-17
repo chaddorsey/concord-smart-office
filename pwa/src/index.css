@@ -28,18 +28,27 @@ body {
   animation: scan 2s ease-in-out infinite;
 }
 
-/* Native QR Scanner mode - make entire page transparent for camera */
-body.scanner-active,
-body.scanner-active #root,
+/* Native QR Scanner mode - make everything transparent for camera to show through */
+body.scanner-active {
+  background: transparent !important;
+}
+
+body.scanner-active #root {
+  background: transparent !important;
+}
+
 body.scanner-active .scan-page {
   background: transparent !important;
 }
 
-/* Semi-transparent overlay for UI elements during scanning */
-body.scanner-active .scan-header {
-  background: rgba(37, 99, 235, 0.9) !important;
+body.scanner-active main {
+  display: none !important;
 }
 
-body.scanner-active .scan-controls {
-  background: rgba(255, 255, 255, 0.95) !important;
+body.scanner-active header {
+  display: none !important;
+}
+
+body.scanner-active nav {
+  display: none !important;
 }
