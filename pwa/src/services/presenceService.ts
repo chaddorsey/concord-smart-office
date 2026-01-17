@@ -1,5 +1,5 @@
 import { haWebSocket } from './haWebSocket'
-import type { StaffMember, HAState } from './types'
+import type { StaffMember, HAState, CheckInResult } from './types'
 
 // Entity ID patterns for presence tracking
 // In HA, presence can be tracked via:
@@ -8,6 +8,15 @@ import type { StaffMember, HAState } from './types'
 // - binary_sensor.staff_<name>_present
 const PRESENCE_ENTITY_PREFIX = 'input_boolean.staff_'
 const PRESENCE_ENTITY_SUFFIX = '_present'
+
+// Known check-in locations (should match nfcService)
+const KNOWN_LOCATIONS: Record<string, { name: string; type: 'entrance' | 'exit' | 'general' }> = {
+  'main-entrance': { name: 'Main Entrance', type: 'entrance' },
+  'lobby': { name: 'Lobby', type: 'entrance' },
+  'back-door': { name: 'Back Door', type: 'entrance' },
+  'front-exit': { name: 'Front Exit', type: 'exit' },
+  'office': { name: 'Office', type: 'general' },
+}
 
 export class PresenceService {
   private stateChangeSubscription: number | null = null
@@ -116,6 +125,151 @@ export class PresenceService {
         timestamp: new Date().toISOString()
       }
     })
+  }
+
+  /**
+   * Check in a user at a location
+   * This is the main method called when a user scans a check-in NFC tag or QR code
+   * @param userId - The logged-in user's entity ID (e.g., input_boolean.staff_alice_present)
+   * @param locationId - The scanned location ID (e.g., "lobby", "main-entrance")
+   */
+  async checkIn(userId: string, locationId: string): Promise<CheckInResult> {
+    const timestamp = new Date().toISOString()
+    const location = KNOWN_LOCATIONS[locationId]
+    const locationName = location?.name || locationId
+
+    try {
+      // Turn on the user's presence entity
+      await haWebSocket.callService('input_boolean', 'turn_on', undefined, {
+        entity_id: userId
+      })
+
+      // Fire an event for automations (e.g., welcome message, log entry)
+      try {
+        await haWebSocket.callService('script', 'turn_on', {
+          entity_id: 'script.staff_check_in',
+          variables: {
+            user_id: userId,
+            location_id: locationId,
+            location_name: locationName,
+            timestamp
+          }
+        })
+      } catch {
+        // Script might not exist, that's okay
+        console.log('[Presence] Check-in script not found, skipping automation')
+      }
+
+      console.log(`[Presence] User ${userId} checked in at ${locationName}`)
+
+      return {
+        success: true,
+        userId,
+        locationId,
+        locationName,
+        action: 'check-in',
+        timestamp
+      }
+    } catch (err) {
+      console.error('[Presence] Check-in failed:', err)
+      return {
+        success: false,
+        userId,
+        locationId,
+        locationName,
+        action: 'check-in',
+        timestamp,
+        error: err instanceof Error ? err.message : 'Check-in failed'
+      }
+    }
+  }
+
+  /**
+   * Check out a user at a location
+   * Called when a user scans an exit NFC tag or manually checks out
+   * @param userId - The logged-in user's entity ID
+   * @param locationId - The scanned location ID (optional for manual checkout)
+   */
+  async checkOut(userId: string, locationId?: string): Promise<CheckInResult> {
+    const timestamp = new Date().toISOString()
+    const location = locationId ? KNOWN_LOCATIONS[locationId] : undefined
+    const locationName = location?.name || locationId || 'Office'
+
+    try {
+      // Turn off the user's presence entity
+      await haWebSocket.callService('input_boolean', 'turn_off', undefined, {
+        entity_id: userId
+      })
+
+      // Fire an event for automations
+      try {
+        await haWebSocket.callService('script', 'turn_on', {
+          entity_id: 'script.staff_check_out',
+          variables: {
+            user_id: userId,
+            location_id: locationId || 'manual',
+            location_name: locationName,
+            timestamp
+          }
+        })
+      } catch {
+        // Script might not exist, that's okay
+        console.log('[Presence] Check-out script not found, skipping automation')
+      }
+
+      console.log(`[Presence] User ${userId} checked out at ${locationName}`)
+
+      return {
+        success: true,
+        userId,
+        locationId: locationId || 'manual',
+        locationName,
+        action: 'check-out',
+        timestamp
+      }
+    } catch (err) {
+      console.error('[Presence] Check-out failed:', err)
+      return {
+        success: false,
+        userId,
+        locationId: locationId || 'manual',
+        locationName,
+        action: 'check-out',
+        timestamp,
+        error: err instanceof Error ? err.message : 'Check-out failed'
+      }
+    }
+  }
+
+  /**
+   * Smart check-in/out based on current state and location type
+   * - If user is not present → check in
+   * - If user is present and scans exit → check out
+   * - If user is present and scans entrance → show already checked in
+   */
+  async smartCheckIn(userId: string, locationId: string, currentlyPresent: boolean): Promise<CheckInResult> {
+    const location = KNOWN_LOCATIONS[locationId]
+
+    // If user is not present, always check in
+    if (!currentlyPresent) {
+      return this.checkIn(userId, locationId)
+    }
+
+    // If user is present and scans an exit location, check out
+    if (location?.type === 'exit') {
+      return this.checkOut(userId, locationId)
+    }
+
+    // User is already present and scanned an entrance/general location
+    return {
+      success: true,
+      userId,
+      locationId,
+      locationName: location?.name || locationId,
+      action: 'check-in',
+      timestamp: new Date().toISOString(),
+      error: 'Already checked in'
+    }
   }
 
   // Subscribe to presence changes

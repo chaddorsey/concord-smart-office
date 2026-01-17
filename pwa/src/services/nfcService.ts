@@ -1,16 +1,20 @@
-// NFC Service for staff check-in/check-out
+// NFC Service for office check-in/check-out
+// Scans location tags (not staff badges) - user identity comes from logged-in session
 // Supports:
 // - Web NFC (Chrome Android 89+ with HTTPS)
 // - Capacitor NFC plugin (iOS/Android native apps)
 
 import { Capacitor } from '@capacitor/core'
 import type { CapacitorNfcPlugin, NfcTag } from '@capgo/capacitor-nfc'
+import type { CheckInLocation } from './types'
 
 // Dynamic import for Capacitor NFC plugin (only loaded when needed)
 let capacitorNfcInstance: CapacitorNfcPlugin | null = null
 
 export interface NFCScanResult {
-  staffId: string
+  locationId: string
+  locationName?: string
+  locationType?: 'entrance' | 'exit' | 'general'
   serialNumber: string
   rawData?: string
 }
@@ -76,24 +80,50 @@ export function getNFCStatus(): NFCStatus {
 }
 
 /**
- * Parse staff ID from NFC tag data
- * Supports multiple formats:
- * - Plain text: "alice" or "staff:alice"
- * - URL: "https://office.example.com/scan?id=alice"
- * - JSON: {"staffId": "alice"}
+ * Known check-in locations (could be fetched from HA in production)
  */
-function parseStaffId(data: string): string | null {
+const KNOWN_LOCATIONS: Record<string, CheckInLocation> = {
+  'main-entrance': { id: 'main-entrance', name: 'Main Entrance', type: 'entrance' },
+  'lobby': { id: 'lobby', name: 'Lobby', type: 'entrance' },
+  'back-door': { id: 'back-door', name: 'Back Door', type: 'entrance' },
+  'front-exit': { id: 'front-exit', name: 'Front Exit', type: 'exit' },
+  'office': { id: 'office', name: 'Office', type: 'general' },
+}
+
+/**
+ * Parse location info from NFC tag data
+ * Supports multiple formats:
+ * - Plain text: "lobby" or "checkin:lobby"
+ * - URL: "https://office.example.com/checkin?loc=lobby"
+ * - JSON: {"locationId": "lobby", "name": "Lobby"}
+ */
+function parseLocationData(data: string): { locationId: string; locationName?: string; locationType?: 'entrance' | 'exit' | 'general' } | null {
   const trimmed = data.trim()
 
   // Try URL format
   try {
     const url = new URL(trimmed)
-    const id = url.searchParams.get('id') || url.searchParams.get('staffId')
-    if (id) return id
+    const loc = url.searchParams.get('loc') || url.searchParams.get('location') || url.searchParams.get('id')
+    if (loc) {
+      const known = KNOWN_LOCATIONS[loc]
+      return {
+        locationId: loc,
+        locationName: known?.name,
+        locationType: known?.type
+      }
+    }
 
-    // Check path for /scan/alice format
-    const pathMatch = url.pathname.match(/\/scan\/([^/]+)/)
-    if (pathMatch) return pathMatch[1]
+    // Check path for /checkin/lobby format
+    const pathMatch = url.pathname.match(/\/checkin\/([^/]+)/)
+    if (pathMatch) {
+      const loc = pathMatch[1]
+      const known = KNOWN_LOCATIONS[loc]
+      return {
+        locationId: loc,
+        locationName: known?.name,
+        locationType: known?.type
+      }
+    }
   } catch {
     // Not a URL, continue
   }
@@ -101,21 +131,49 @@ function parseStaffId(data: string): string | null {
   // Try JSON format
   try {
     const json = JSON.parse(trimmed)
-    if (json.staffId) return json.staffId
-    if (json.id) return json.id
+    if (json.locationId || json.location || json.loc) {
+      const loc = json.locationId || json.location || json.loc
+      return {
+        locationId: loc,
+        locationName: json.name || json.locationName || KNOWN_LOCATIONS[loc]?.name,
+        locationType: json.type || json.locationType || KNOWN_LOCATIONS[loc]?.type
+      }
+    }
   } catch {
     // Not JSON, continue
   }
 
-  // Try "staff:alice" prefix format
-  if (trimmed.startsWith('staff:')) {
-    return trimmed.slice(6)
+  // Try "checkin:lobby" prefix format
+  if (trimmed.startsWith('checkin:')) {
+    const loc = trimmed.slice(8)
+    const known = KNOWN_LOCATIONS[loc]
+    return {
+      locationId: loc,
+      locationName: known?.name,
+      locationType: known?.type
+    }
   }
 
-  // Plain text - assume the whole thing is the staff ID
+  // Try "location:lobby" prefix format
+  if (trimmed.startsWith('location:')) {
+    const loc = trimmed.slice(9)
+    const known = KNOWN_LOCATIONS[loc]
+    return {
+      locationId: loc,
+      locationName: known?.name,
+      locationType: known?.type
+    }
+  }
+
+  // Plain text - assume the whole thing is the location ID
   // Only if it looks like an ID (alphanumeric, underscores, hyphens)
   if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
-    return trimmed
+    const known = KNOWN_LOCATIONS[trimmed]
+    return {
+      locationId: trimmed,
+      locationName: known?.name,
+      locationType: known?.type
+    }
   }
 
   return null
@@ -159,7 +217,7 @@ export class NFCService {
   }
 
   /**
-   * Start scanning for NFC tags
+   * Start scanning for NFC check-in tags
    * Returns a promise that resolves with the scan result or rejects with an error
    */
   async startScan(
@@ -202,8 +260,7 @@ export class NFCService {
   /**
    * Parse NDEF payload from Capacitor NFC tag
    */
-  private parseCapacitorNfcTag(tag: NfcTag): { staffId: string | null; serialNumber: string; rawData?: string } {
-    let staffId: string | null = null
+  private parseCapacitorNfcTag(tag: NfcTag): NFCScanResult | null {
     let rawData: string | undefined
     const serialNumber = tag.id ? tag.id.map(b => b.toString(16).padStart(2, '0')).join(':') : ''
 
@@ -223,8 +280,14 @@ export class NFCService {
             }
             const text = new TextDecoder().decode(new Uint8Array(payloadBytes))
             rawData = text
-            staffId = parseStaffId(text)
-            if (staffId) break
+            const locationData = parseLocationData(text)
+            if (locationData) {
+              return {
+                ...locationData,
+                serialNumber,
+                rawData
+              }
+            }
           } catch (e) {
             console.warn('[NFC] Failed to decode payload:', e)
           }
@@ -232,7 +295,7 @@ export class NFCService {
       }
     }
 
-    return { staffId, serialNumber, rawData }
+    return null
   }
 
   /**
@@ -260,18 +323,14 @@ export class NFCService {
       const listenerResult = await nfc.addListener('ndefDiscovered', (event) => {
         console.log('[NFC] Capacitor tag read:', event)
 
-        const { staffId, serialNumber, rawData } = this.parseCapacitorNfcTag(event.tag)
+        const result = this.parseCapacitorNfcTag(event.tag)
 
-        if (staffId) {
-          onTagRead({
-            staffId,
-            serialNumber,
-            rawData
-          })
+        if (result) {
+          onTagRead(result)
         } else {
           onError?.({
             status: 'error',
-            message: 'Could not read staff ID from NFC tag. Tag data: ' + (rawData || 'empty')
+            message: 'Could not read location from NFC tag. Is this a valid check-in tag?'
           })
         }
       })
@@ -280,7 +339,7 @@ export class NFCService {
 
       // Start the NFC scanning session
       await nfc.startScanning({
-        alertMessage: 'Hold your badge near the phone to scan in'
+        alertMessage: 'Hold your phone near the check-in tag'
       })
 
       console.log('[NFC] Capacitor scanning started')
@@ -313,39 +372,33 @@ export class NFCService {
       // Set up reading handler
       this.reader.onreading = (event: NDEFReadingEvent) => {
         const { serialNumber, message } = event
-        let staffId: string | null = null
         let rawData: string | undefined
 
-        // Try to find staff ID in the message records
+        // Try to find location in the message records
         for (const record of message.records) {
           if (record.recordType === 'text' || record.recordType === 'url') {
             const text = readRecordText(record)
             if (text) {
               rawData = text
-              staffId = parseStaffId(text)
-              if (staffId) break
+              const locationData = parseLocationData(text)
+              if (locationData) {
+                onTagRead({
+                  ...locationData,
+                  serialNumber,
+                  rawData
+                })
+                return
+              }
             }
           }
         }
 
-        // If no staff ID found in records, try using serial number as fallback
-        // (This would require a mapping table in a real implementation)
-        if (!staffId && serialNumber) {
-          console.log('[NFC] No staff ID in tag data, serial:', serialNumber)
-        }
-
-        if (staffId) {
-          onTagRead({
-            staffId,
-            serialNumber,
-            rawData
-          })
-        } else {
-          onError?.({
-            status: 'error',
-            message: 'Could not read staff ID from NFC tag. Tag data: ' + (rawData || 'empty')
-          })
-        }
+        // No valid location found
+        console.log('[NFC] No location in tag data, serial:', serialNumber)
+        onError?.({
+          status: 'error',
+          message: 'Could not read location from NFC tag. Tag data: ' + (rawData || 'empty')
+        })
       }
 
       this.reader.onreadingerror = (event: NDEFErrorEvent) => {
@@ -420,14 +473,16 @@ export class NFCService {
   }
 
   /**
-   * Write data to an NFC tag (for provisioning tags)
+   * Write location data to an NFC tag (for provisioning check-in points)
    */
-  async writeTag(staffId: string): Promise<void> {
+  async writeLocationTag(locationId: string, locationName?: string): Promise<void> {
     const status = getNFCStatus()
 
     if (status !== 'available') {
       throw new Error('NFC not available')
     }
+
+    const payload = `checkin:${locationId}`
 
     // Use Capacitor NFC if available
     if (isCapacitorNative()) {
@@ -438,7 +493,6 @@ export class NFCService {
 
       try {
         // Create NDEF text record
-        const payload = `staff:${staffId}`
         const encoder = new TextEncoder()
         const textBytes = encoder.encode(payload)
         // Text record format: [language code length] [language code bytes] [text bytes]
@@ -456,7 +510,7 @@ export class NFCService {
             }
           ]
         })
-        console.log('[NFC] Tag written successfully via Capacitor')
+        console.log('[NFC] Location tag written successfully via Capacitor:', locationId, locationName)
       } catch (err) {
         throw err instanceof Error ? err : new Error('Failed to write NFC tag')
       }
@@ -467,16 +521,16 @@ export class NFCService {
     const writer = new NDEFReader()
 
     try {
-      // Write staff ID as a text record
+      // Write location as a text record
       await writer.write({
         records: [
           {
             recordType: 'text',
-            data: `staff:${staffId}`
+            data: payload
           }
         ]
       })
-      console.log('[NFC] Tag written successfully via Web NFC')
+      console.log('[NFC] Location tag written successfully via Web NFC:', locationId, locationName)
     } catch (err) {
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
         throw new Error('NFC permission denied')

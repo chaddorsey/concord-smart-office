@@ -62,6 +62,14 @@ export const MOCK_PHOTO_FRAMES = [
   { id: 'frame_4', entityId: 'media_player.photo_frame_4', name: 'Frame 4 - Lounge', isOnline: true },
 ]
 
+export const MOCK_LOCATIONS = [
+  { id: 'main-entrance', name: 'Main Entrance', type: 'entrance' as const },
+  { id: 'lobby', name: 'Lobby', type: 'entrance' as const },
+  { id: 'back-door', name: 'Back Door', type: 'entrance' as const },
+  { id: 'front-exit', name: 'Front Exit', type: 'exit' as const },
+  { id: 'office', name: 'Office', type: 'general' as const },
+]
+
 export const MOCK_PLAYLIST_IMAGES = [
   { id: '1', url: '/images/office-1.jpg', title: 'Team Building 2024', addedBy: 'Alice', addedAt: '2024-01-15' },
   { id: '2', url: '/images/office-2.jpg', title: 'Product Launch', addedBy: 'Bob', addedAt: '2024-01-10' },

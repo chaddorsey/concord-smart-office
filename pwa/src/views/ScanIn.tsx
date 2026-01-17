@@ -2,22 +2,27 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth, usePresence } from '../stores'
 import { nfcService, getNFCStatus, type NFCStatus, type NFCScanResult } from '../services/nfcService'
+import { presenceService } from '../services/presenceService'
+import type { CheckInResult } from '../services/types'
 import BottomNav from '../components/BottomNav'
 
-type ScanMode = 'qr' | 'nfc' | 'manual'
+type ScanMode = 'nfc' | 'qr' | 'manual'
 
 export default function ScanIn() {
   const navigate = useNavigate()
-  const { isAuthenticated, connectionStatus } = useAuth()
-  const { staff, currentUserId, isCurrentUserPresent, scanIn, scanOut, setCurrentUser } = usePresence()
+  const { isAuthenticated, connectionStatus, isMockMode } = useAuth()
+  const { currentUserId, isCurrentUserPresent, staff } = usePresence()
 
-  const [scanMode, setScanMode] = useState<ScanMode>('manual')
+  const [scanMode, setScanMode] = useState<ScanMode>('nfc')
   const [isScanning, setIsScanning] = useState(false)
-  const [scanStatus, setScanStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [selectedStaffId, setSelectedStaffId] = useState<string>(currentUserId || '')
+  const [checkInResult, setCheckInResult] = useState<CheckInResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [nfcStatus, setNfcStatus] = useState<NFCStatus>(() => getNFCStatus())
+  const [manualLocationId, setManualLocationId] = useState<string>('')
   const stopNfcScanRef = useRef<(() => void) | null>(null)
+
+  // Get current user info
+  const currentUser = staff.find(s => s.id === currentUserId)
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -25,13 +30,6 @@ export default function ScanIn() {
       navigate('/login')
     }
   }, [isAuthenticated, connectionStatus, navigate])
-
-  // Update selected staff when current user changes
-  useEffect(() => {
-    if (currentUserId && !selectedStaffId) {
-      setSelectedStaffId(currentUserId)
-    }
-  }, [currentUserId, selectedStaffId])
 
   // Cleanup NFC scanning on unmount or mode change
   useEffect(() => {
@@ -52,41 +50,42 @@ export default function ScanIn() {
     }
   }, [scanMode])
 
-  const handleScan = useCallback(async (staffIdOverride?: string) => {
-    const targetStaffId = staffIdOverride || selectedStaffId
-
-    if (!targetStaffId) {
-      setError('Please select a staff member')
-      return
-    }
-
-    // Verify this staff member exists
-    const staffMember = staff.find(s => s.id === targetStaffId)
-    if (!staffMember) {
-      setError(`Unknown staff ID: ${targetStaffId}`)
-      setScanStatus('error')
+  // Handle check-in after scanning a location
+  const handleCheckIn = useCallback(async (locationId: string, locationName?: string) => {
+    if (!currentUserId) {
+      setError('You must be logged in to check in')
       return
     }
 
     setIsScanning(true)
-    setScanStatus('idle')
     setError(null)
+    setCheckInResult(null)
 
     try {
-      // Set this as the current user
-      setCurrentUser(targetStaffId)
-      setSelectedStaffId(targetStaffId)
+      let result: CheckInResult
 
-      // Determine if scanning in or out
-      const isPresent = staffMember.isPresent
-
-      if (isPresent) {
-        await scanOut(targetStaffId)
+      if (isMockMode) {
+        // In mock mode, simulate the check-in
+        result = {
+          success: true,
+          userId: currentUserId,
+          locationId,
+          locationName: locationName || locationId,
+          action: isCurrentUserPresent ? 'check-out' : 'check-in',
+          timestamp: new Date().toISOString()
+        }
+        // Simulate delay
+        await new Promise(resolve => setTimeout(resolve, 500))
       } else {
-        await scanIn(targetStaffId)
+        // Real check-in via Home Assistant
+        result = await presenceService.smartCheckIn(
+          currentUserId,
+          locationId,
+          isCurrentUserPresent
+        )
       }
 
-      setScanStatus('success')
+      setCheckInResult(result)
 
       // Stop NFC scanning after successful scan
       if (stopNfcScanRef.current) {
@@ -94,35 +93,31 @@ export default function ScanIn() {
         stopNfcScanRef.current = null
       }
 
-      // Redirect to dashboard after successful scan
-      setTimeout(() => {
-        navigate('/dashboard')
-      }, 1500)
+      // Redirect to dashboard after successful check-in
+      if (result.success && !result.error) {
+        setTimeout(() => {
+          navigate('/dashboard')
+        }, 2000)
+      }
     } catch (err) {
-      console.error('Scan failed:', err)
-      setScanStatus('error')
-      setError(err instanceof Error ? err.message : 'Scan failed')
+      console.error('Check-in failed:', err)
+      setError(err instanceof Error ? err.message : 'Check-in failed')
     } finally {
       setIsScanning(false)
     }
-  }, [selectedStaffId, staff, setCurrentUser, scanIn, scanOut, navigate])
+  }, [currentUserId, isCurrentUserPresent, isMockMode, navigate])
 
   const handleStartQRScan = async () => {
     setIsScanning(true)
-    setScanStatus('idle')
     setError(null)
+    setCheckInResult(null)
 
     // TODO: Implement actual QR camera scanning
-    // For now, simulate after a delay
+    // For now, simulate after a delay with a test location
     await new Promise(resolve => setTimeout(resolve, 2000))
 
-    // Simulated: QR code would contain staff ID
-    if (selectedStaffId) {
-      await handleScan()
-    } else {
-      setIsScanning(false)
-      setError('No QR code detected')
-    }
+    // Simulated: QR code would contain location ID
+    await handleCheckIn('lobby', 'Lobby')
   }
 
   const handleStartNFCScan = async () => {
@@ -131,7 +126,7 @@ export default function ScanIn() {
     setNfcStatus(status)
 
     if (status === 'unavailable') {
-      setError('Web NFC is not supported in this browser. Try Chrome on Android.')
+      setError('NFC is not supported on this device. Try QR code or manual mode.')
       return
     }
 
@@ -141,15 +136,15 @@ export default function ScanIn() {
     }
 
     setIsScanning(true)
-    setScanStatus('idle')
     setError(null)
+    setCheckInResult(null)
 
     try {
       const stopScan = await nfcService.startScan(
         // On successful tag read
         (result: NFCScanResult) => {
-          console.log('[NFC] Tag read:', result)
-          handleScan(result.staffId)
+          console.log('[NFC] Location tag read:', result)
+          handleCheckIn(result.locationId, result.locationName)
         },
         // On error
         (nfcError) => {
@@ -182,11 +177,18 @@ export default function ScanIn() {
       stopNfcScanRef.current = null
     }
     setIsScanning(false)
-    setScanStatus('idle')
   }
 
-  const currentStaffMember = staff.find(s => s.id === selectedStaffId)
-  const actionLabel = currentStaffMember?.isPresent ? 'Scan Out' : 'Scan In'
+  const handleManualCheckIn = () => {
+    if (manualLocationId) {
+      handleCheckIn(manualLocationId)
+    }
+  }
+
+  const actionLabel = isCurrentUserPresent ? 'Check Out' : 'Check In'
+  const successMessage = checkInResult?.action === 'check-out'
+    ? `Checked out from ${checkInResult.locationName}!`
+    : `Checked in at ${checkInResult?.locationName}!`
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -198,24 +200,48 @@ export default function ScanIn() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <h1 className="text-xl font-bold">Scan In / Out</h1>
+          <h1 className="text-xl font-bold">{actionLabel}</h1>
           <div className="w-10" />
         </div>
       </header>
 
       {/* Main Content */}
       <main className="max-w-lg mx-auto p-4 space-y-6">
+        {/* Current User Card */}
+        {currentUser && (
+          <div className="bg-white rounded-xl shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-medium text-lg">
+                {currentUser.avatarInitials}
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-gray-900">{currentUser.name}</p>
+                <p className={`text-sm ${currentUser.isPresent ? 'text-green-600' : 'text-gray-500'}`}>
+                  {currentUser.isPresent ? 'Currently in office' : 'Not in office'}
+                </p>
+              </div>
+              <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                currentUser.isPresent
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-gray-100 text-gray-600'
+              }`}>
+                {currentUser.isPresent ? 'In' : 'Out'}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Mode Toggle */}
         <div className="bg-white rounded-xl shadow-sm p-2 flex">
           <button
-            onClick={() => setScanMode('manual')}
+            onClick={() => setScanMode('nfc')}
             className={`flex-1 py-3 px-4 rounded-lg font-medium transition ${
-              scanMode === 'manual'
+              scanMode === 'nfc'
                 ? 'bg-blue-600 text-white'
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Manual
+            NFC
           </button>
           <button
             onClick={() => setScanMode('qr')}
@@ -228,14 +254,14 @@ export default function ScanIn() {
             QR Code
           </button>
           <button
-            onClick={() => setScanMode('nfc')}
+            onClick={() => setScanMode('manual')}
             className={`flex-1 py-3 px-4 rounded-lg font-medium transition ${
-              scanMode === 'nfc'
+              scanMode === 'manual'
                 ? 'bg-blue-600 text-white'
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
-            NFC
+            Manual
           </button>
         </div>
 
@@ -246,67 +272,90 @@ export default function ScanIn() {
           </div>
         )}
 
+        {/* Already Checked In Warning */}
+        {checkInResult?.error === 'Already checked in' && (
+          <div className="bg-amber-50 text-amber-700 px-4 py-3 rounded-xl text-sm">
+            You're already checked in! Scan an exit tag to check out.
+          </div>
+        )}
+
         {/* Scan Area */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          {scanMode === 'manual' ? (
+          {scanMode === 'nfc' ? (
             <div className="space-y-4">
-              <div>
-                <label htmlFor="staff-select" className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Staff Member
-                </label>
-                <select
-                  id="staff-select"
-                  value={selectedStaffId}
-                  onChange={(e) => setSelectedStaffId(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
-                  disabled={isScanning}
-                >
-                  <option value="">Choose a person...</option>
-                  {staff.map((person) => (
-                    <option key={person.id} value={person.id}>
-                      {person.name} {person.isPresent ? '(In Office)' : '(Not In)'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedStaffId && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-medium">
-                      {currentStaffMember?.avatarInitials}
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-900">{currentStaffMember?.name}</p>
-                      <p className={`text-sm ${currentStaffMember?.isPresent ? 'text-green-600' : 'text-gray-500'}`}>
-                        {currentStaffMember?.isPresent ? 'Currently in office' : 'Not in office'}
-                      </p>
-                    </div>
-                  </div>
+              {/* NFC Availability Warning */}
+              {nfcStatus === 'unavailable' && (
+                <div className="bg-amber-50 text-amber-700 px-4 py-3 rounded-xl text-sm">
+                  <p className="font-medium">NFC not available</p>
+                  <p className="mt-1">Try QR code or manual mode instead.</p>
                 </div>
               )}
 
-              {scanStatus === 'success' ? (
-                <div className="text-center py-4">
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <p className="text-green-600 font-medium">
-                    {isCurrentUserPresent ? 'Scanned In!' : 'Scanned Out!'}
-                  </p>
+              {nfcStatus === 'requires-https' && (
+                <div className="bg-amber-50 text-amber-700 px-4 py-3 rounded-xl text-sm">
+                  <p className="font-medium">HTTPS Required</p>
+                  <p className="mt-1">NFC requires a secure connection.</p>
                 </div>
+              )}
+
+              <div className="aspect-square bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl flex items-center justify-center">
+                {isScanning ? (
+                  <div className="text-center">
+                    <div className="w-24 h-24 border-4 border-blue-600 rounded-full animate-pulse mx-auto mb-4 flex items-center justify-center">
+                      <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                      </svg>
+                    </div>
+                    <p className="text-blue-600 font-medium">Ready to scan...</p>
+                    <p className="text-blue-500 text-sm mt-1">Hold your phone near the check-in tag</p>
+                  </div>
+                ) : checkInResult?.success && !checkInResult.error ? (
+                  <div className="text-center">
+                    <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <p className="text-green-600 font-medium">{successMessage}</p>
+                    <p className="text-gray-500 text-sm mt-1">Redirecting to dashboard...</p>
+                  </div>
+                ) : nfcStatus === 'permission-denied' ? (
+                  <div className="text-center">
+                    <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                    </div>
+                    <p className="text-red-600 font-medium">Permission Denied</p>
+                    <p className="text-gray-500 text-sm mt-1">Allow NFC access and try again</p>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <div className="w-24 h-24 border-4 border-dashed border-blue-300 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-12 h-12 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-600 font-medium">Ready to {actionLabel.toLowerCase()}</p>
+                    <p className="text-gray-500 text-sm mt-1">Tap the button to start scanning</p>
+                  </div>
+                )}
+              </div>
+
+              {isScanning ? (
+                <button
+                  onClick={handleStopNFCScan}
+                  className="w-full bg-gray-200 text-gray-700 py-4 rounded-xl font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition"
+                >
+                  Cancel
+                </button>
               ) : (
                 <button
-                  onClick={() => handleScan()}
-                  disabled={isScanning || !selectedStaffId}
-                  className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  onClick={handleStartNFCScan}
+                  disabled={checkInResult?.success || nfcStatus === 'unavailable' || nfcStatus === 'requires-https'}
+                  className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isScanning && (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  )}
-                  {isScanning ? 'Processing...' : actionLabel}
+                  {nfcStatus === 'permission-denied' ? 'Try Again' : `Start ${actionLabel}`}
                 </button>
               )}
             </div>
@@ -318,14 +367,14 @@ export default function ScanIn() {
                     <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
                     <p className="text-gray-600">Scanning...</p>
                   </div>
-                ) : scanStatus === 'success' ? (
+                ) : checkInResult?.success && !checkInResult.error ? (
                   <div className="text-center">
                     <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                       <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
-                    <p className="text-green-600 font-medium">Success!</p>
+                    <p className="text-green-600 font-medium">{successMessage}</p>
                   </div>
                 ) : (
                   <div className="text-center">
@@ -339,7 +388,7 @@ export default function ScanIn() {
 
               <button
                 onClick={handleStartQRScan}
-                disabled={isScanning || scanStatus === 'success'}
+                disabled={isScanning || checkInResult?.success}
                 className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isScanning ? 'Scanning...' : 'Start Camera'}
@@ -347,86 +396,50 @@ export default function ScanIn() {
             </div>
           ) : (
             <div className="space-y-4">
-              {/* NFC Availability Warning */}
-              {nfcStatus === 'unavailable' && (
-                <div className="bg-amber-50 text-amber-700 px-4 py-3 rounded-xl text-sm">
-                  <p className="font-medium">Web NFC not supported</p>
-                  <p className="mt-1">NFC scanning requires Chrome on Android. Try manual mode instead.</p>
-                </div>
-              )}
+              <p className="text-sm text-gray-600">
+                Select a check-in location to manually {actionLabel.toLowerCase()}:
+              </p>
 
-              {nfcStatus === 'requires-https' && (
-                <div className="bg-amber-50 text-amber-700 px-4 py-3 rounded-xl text-sm">
-                  <p className="font-medium">HTTPS Required</p>
-                  <p className="mt-1">NFC requires a secure connection. Access this app via HTTPS.</p>
-                </div>
-              )}
-
-              <div className="aspect-square bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl flex items-center justify-center">
-                {isScanning ? (
-                  <div className="text-center">
-                    <div className="w-24 h-24 border-4 border-blue-600 rounded-full animate-pulse mx-auto mb-4 flex items-center justify-center">
-                      <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                      </svg>
-                    </div>
-                    <p className="text-blue-600 font-medium">Scanning for NFC tags...</p>
-                    <p className="text-blue-500 text-sm mt-1">Hold your phone near an NFC tag</p>
-                  </div>
-                ) : scanStatus === 'success' ? (
-                  <div className="text-center">
-                    <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                    <p className="text-green-600 font-medium">Success!</p>
-                  </div>
-                ) : nfcStatus === 'permission-denied' ? (
-                  <div className="text-center">
-                    <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                      </svg>
-                    </div>
-                    <p className="text-red-600 font-medium">Permission Denied</p>
-                    <p className="text-gray-500 text-sm mt-1">Allow NFC access in your browser settings</p>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <div className="w-24 h-24 border-4 border-dashed border-blue-300 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-12 h-12 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                      </svg>
-                    </div>
-                    <p className="text-gray-600 font-medium">Ready to scan</p>
-                    <p className="text-gray-500 text-sm mt-1">Tap the button below to start scanning</p>
-                  </div>
-                )}
+              <div>
+                <label htmlFor="location-select" className="block text-sm font-medium text-gray-700 mb-2">
+                  Location
+                </label>
+                <select
+                  id="location-select"
+                  value={manualLocationId}
+                  onChange={(e) => setManualLocationId(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
+                  disabled={isScanning}
+                >
+                  <option value="">Choose a location...</option>
+                  <option value="main-entrance">Main Entrance</option>
+                  <option value="lobby">Lobby</option>
+                  <option value="back-door">Back Door</option>
+                  <option value="front-exit">Front Exit</option>
+                  <option value="office">Office</option>
+                </select>
               </div>
 
-              {isScanning ? (
-                <button
-                  onClick={handleStopNFCScan}
-                  className="w-full bg-gray-200 text-gray-700 py-4 rounded-xl font-medium hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition"
-                >
-                  Stop Scanning
-                </button>
+              {checkInResult?.success && !checkInResult.error ? (
+                <div className="text-center py-4">
+                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <p className="text-green-600 font-medium">{successMessage}</p>
+                </div>
               ) : (
                 <button
-                  onClick={handleStartNFCScan}
-                  disabled={scanStatus === 'success' || nfcStatus === 'unavailable' || nfcStatus === 'requires-https'}
-                  className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleManualCheckIn}
+                  disabled={isScanning || !manualLocationId}
+                  className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  {nfcStatus === 'permission-denied' ? 'Try Again' : 'Start NFC Scan'}
+                  {isScanning && (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {isScanning ? 'Processing...' : actionLabel}
                 </button>
-              )}
-
-              {/* NFC Tag Format Info */}
-              {nfcStatus === 'available' && !isScanning && scanStatus !== 'success' && (
-                <p className="text-xs text-gray-500 text-center">
-                  NFC tags should contain a staff ID as text (e.g., "staff:alice")
-                </p>
               )}
             </div>
           )}
@@ -434,8 +447,8 @@ export default function ScanIn() {
 
         {/* Help Text */}
         <div className="text-center text-sm text-gray-500 space-y-1">
-          <p>Having trouble scanning?</p>
-          <p>Try manual mode or check camera/NFC permissions.</p>
+          <p>Tap your phone on an office check-in tag</p>
+          <p className="text-xs">or use QR/manual mode if NFC isn't working</p>
         </div>
       </main>
 

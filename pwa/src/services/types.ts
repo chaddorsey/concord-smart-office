@@ -60,3 +60,20 @@ export interface PresenceState {
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'error'
+
+// Check-in location types
+export interface CheckInLocation {
+  id: string
+  name: string
+  type: 'entrance' | 'exit' | 'general'
+}
+
+export interface CheckInResult {
+  success: boolean
+  userId: string
+  locationId: string
+  locationName: string
+  action: 'check-in' | 'check-out'
+  timestamp: string
+  error?: string
+}
