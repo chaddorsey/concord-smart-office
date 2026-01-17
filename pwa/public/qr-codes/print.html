@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Check-In QR Codes - Print Sheet</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -49,9 +48,11 @@
       page-break-inside: avoid;
     }
 
-    .qr-card canvas {
+    .qr-card img {
       display: block;
       margin: 0 auto 20px;
+      width: 200px;
+      height: 200px;
     }
 
     .location-name {
@@ -131,66 +132,53 @@
   <button class="print-btn no-print" onclick="window.print()">Print QR Codes</button>
 
   <div class="qr-grid" id="qr-grid">
-    <!-- QR codes will be generated here -->
+    <div class="qr-card">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=checkin:lobby" alt="QR Code for Main Lobby">
+      <div class="location-name">Main Lobby</div>
+      <div class="location-type">entrance</div>
+      <div class="scan-instruction">Scan to Check In/Out</div>
+      <div class="qr-code-value">checkin:lobby</div>
+    </div>
+
+    <div class="qr-card">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=checkin:main-entrance" alt="QR Code for Main Entrance">
+      <div class="location-name">Main Entrance</div>
+      <div class="location-type">entrance</div>
+      <div class="scan-instruction">Scan to Check In/Out</div>
+      <div class="qr-code-value">checkin:main-entrance</div>
+    </div>
+
+    <div class="qr-card">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=checkin:back-door" alt="QR Code for Back Door">
+      <div class="location-name">Back Door</div>
+      <div class="location-type">entrance</div>
+      <div class="scan-instruction">Scan to Check In/Out</div>
+      <div class="qr-code-value">checkin:back-door</div>
+    </div>
+
+    <div class="qr-card">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=checkin:front-exit" alt="QR Code for Front Exit">
+      <div class="location-name">Front Exit</div>
+      <div class="location-type">exit</div>
+      <div class="scan-instruction">Scan to Check In/Out</div>
+      <div class="qr-code-value">checkin:front-exit</div>
+    </div>
+
+    <div class="qr-card">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=checkin:office" alt="QR Code for Office">
+      <div class="location-name">Office</div>
+      <div class="location-type">general</div>
+      <div class="scan-instruction">Scan to Check In/Out</div>
+      <div class="qr-code-value">checkin:office</div>
+    </div>
+
+    <div class="qr-card">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=checkin:conference-room" alt="QR Code for Conference Room">
+      <div class="location-name">Conference Room</div>
+      <div class="location-type">general</div>
+      <div class="scan-instruction">Scan to Check In/Out</div>
+      <div class="qr-code-value">checkin:conference-room</div>
+    </div>
   </div>
-
-  <script>
-    const locations = [
-      { id: 'lobby', name: 'Main Lobby', type: 'entrance' },
-      { id: 'main-entrance', name: 'Main Entrance', type: 'entrance' },
-      { id: 'back-door', name: 'Back Door', type: 'entrance' },
-      { id: 'front-exit', name: 'Front Exit', type: 'exit' },
-      { id: 'office', name: 'Office', type: 'general' },
-      { id: 'conference-room', name: 'Conference Room', type: 'general' }
-    ];
-
-    function generateQRCodes() {
-      const grid = document.getElementById('qr-grid');
-
-      locations.forEach(location => {
-        const card = document.createElement('div');
-        card.className = 'qr-card';
-
-        const canvas = document.createElement('canvas');
-        card.appendChild(canvas);
-
-        // Generate QR code with the check-in data
-        const qrData = `checkin:${location.id}`;
-        QRCode.toCanvas(canvas, qrData, {
-          width: 200,
-          margin: 2,
-          color: {
-            dark: '#000000',
-            light: '#ffffff'
-          }
-        });
-
-        const nameEl = document.createElement('div');
-        nameEl.className = 'location-name';
-        nameEl.textContent = location.name;
-        card.appendChild(nameEl);
-
-        const typeEl = document.createElement('div');
-        typeEl.className = 'location-type';
-        typeEl.textContent = location.type;
-        card.appendChild(typeEl);
-
-        const instructionEl = document.createElement('div');
-        instructionEl.className = 'scan-instruction';
-        instructionEl.textContent = 'Scan to Check In/Out';
-        card.appendChild(instructionEl);
-
-        const valueEl = document.createElement('div');
-        valueEl.className = 'qr-code-value';
-        valueEl.textContent = qrData;
-        card.appendChild(valueEl);
-
-        grid.appendChild(card);
-      });
-    }
-
-    // Generate QR codes when page loads
-    window.onload = generateQRCodes;
-  </script>
 </body>
 </html>
