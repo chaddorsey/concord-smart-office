@@ -6,6 +6,7 @@ import ScanIn from './views/ScanIn'
 import Music from './views/Music'
 import SandTable from './views/SandTable'
 import PhotoFrames from './views/PhotoFrames'
+import BrowseVideos from './views/BrowseVideos'
 
 function App() {
   return (
@@ -23,6 +24,8 @@ function App() {
                   <Route path="/music" element={<Music />} />
                   <Route path="/sand" element={<SandTable />} />
                   <Route path="/photos" element={<PhotoFrames />} />
+                  <Route path="/frames" element={<PhotoFrames />} />
+                  <Route path="/browse-videos" element={<BrowseVideos />} />
                 </Routes>
               </BrowserRouter>
             </PhotoFrameProvider>

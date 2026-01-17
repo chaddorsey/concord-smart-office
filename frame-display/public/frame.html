@@ -123,10 +123,14 @@
     const urlParams = new URLSearchParams(window.location.search);
     const debugMode = urlParams.get('debug') === '1';
     const haToken = urlParams.get('token') || localStorage.getItem('ha_token') || '';
+    const customHaUrl = urlParams.get('ha') || localStorage.getItem('ha_url') || '';
 
-    // Store token if provided in URL
+    // Store token and HA URL if provided
     if (urlParams.get('token')) {
       localStorage.setItem('ha_token', urlParams.get('token'));
+    }
+    if (urlParams.get('ha')) {
+      localStorage.setItem('ha_url', urlParams.get('ha'));
     }
 
     const debugEl = document.getElementById('debug');
@@ -154,8 +158,27 @@
     let reconnectTimeout = null;
     let haConfig = null;
 
-    // Fetch HA config from our server
+    // Fetch HA config from our server or use custom URL
     async function fetchConfig() {
+      // If custom HA URL provided, use it directly
+      if (customHaUrl) {
+        const haUrl = customHaUrl.replace(/\/$/, ''); // Remove trailing slash
+        // Handle both http->ws and https->wss
+        let wsUrl;
+        if (haUrl.startsWith('https://')) {
+          wsUrl = haUrl.replace('https://', 'wss://') + '/api/websocket';
+        } else {
+          wsUrl = haUrl.replace('http://', 'ws://') + '/api/websocket';
+        }
+        haConfig = {
+          haUrl: haUrl,
+          wsUrl: wsUrl
+        };
+        log(`Using custom HA URL: ${haConfig.haUrl}`);
+        log(`WebSocket URL: ${haConfig.wsUrl}`);
+        return true;
+      }
+
       try {
         const res = await fetch('/api/config');
         haConfig = await res.json();
@@ -204,8 +227,8 @@
           log(`WebSocket error: ${err.message || 'Unknown'}`);
         };
 
-        ws.onclose = () => {
-          log('WebSocket closed, reconnecting...');
+        ws.onclose = (event) => {
+          log(`WebSocket closed: code=${event.code}, reason=${event.reason || 'none'}`);
           loadingEl.style.display = 'block';
           errorEl.style.display = 'none';
           clearTimeout(reconnectTimeout);
@@ -227,7 +250,8 @@
       switch (msg.type) {
         case 'auth_required':
           log('Authenticating...');
-          sendMessage({ type: 'auth', access_token: haToken });
+          // Auth message must NOT have an id field
+          ws.send(JSON.stringify({ type: 'auth', access_token: haToken }));
           break;
 
         case 'auth_ok':

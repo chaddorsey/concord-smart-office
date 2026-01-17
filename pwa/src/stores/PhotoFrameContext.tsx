@@ -43,6 +43,9 @@ interface PhotoFrameContextValue extends PhotoFrameState, LocalState {
   getPlaylistMedia: (playlist: string) => MediaItem[]
   getCurrentFrameMedia: (frameId: string) => MediaItem | null
 
+  // Media management
+  addMediaToLibrary: (item: MediaItem) => Promise<void>
+
   // Media voting
   upvoteMedia: (itemId: string) => Promise<void>
   downvoteMedia: (itemId: string) => Promise<void>
@@ -315,6 +318,41 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     }
   }, [currentUserId, isCurrentUserPresent, localState.userVotes, isMockMode])
 
+  // Add media to library
+  const addMediaToLibrary = useCallback(async (item: MediaItem) => {
+    if (!isCurrentUserPresent) return
+
+    if (isMockMode) {
+      setHaState(prev => {
+        // Check if item already exists
+        if (prev.mediaLibrary.some(m => m.id === item.id)) {
+          return prev
+        }
+        // Add new playlist if it doesn't exist
+        const playlists = prev.playlists.includes(item.playlist)
+          ? prev.playlists
+          : [...prev.playlists, item.playlist].sort()
+        return {
+          ...prev,
+          mediaLibrary: [...prev.mediaLibrary, item],
+          playlists
+        }
+      })
+      return
+    }
+
+    try {
+      // Get current library and add item
+      const currentLibrary = haState.mediaLibrary
+      if (currentLibrary.some(m => m.id === item.id)) {
+        return // Already exists
+      }
+      await photoFrameService.updateMediaLibrary([...currentLibrary, item])
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to add media:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode, haState.mediaLibrary])
+
   // Get user's vote on a media item
   const getUserVote = useCallback((itemId: string): 'up' | 'down' | null => {
     return localState.userVotes.get(itemId) || null
@@ -335,6 +373,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
         selectPlaylist,
         getPlaylistMedia,
         getCurrentFrameMedia,
+        addMediaToLibrary,
         upvoteMedia,
         downvoteMedia,
         getUserVote,
