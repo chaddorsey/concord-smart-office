@@ -5,26 +5,20 @@ import { BarcodeScanner, BarcodeFormat, type BarcodesScannedEvent } from '@capac
 interface QRScannerProps {
   onScan: (data: string) => void
   onError?: (error: string) => void
+  onStop?: () => void
   isActive: boolean
 }
 
-// Make the WebView transparent so native camera shows through
-function setWebViewTransparent(transparent: boolean) {
-  const html = document.documentElement
-  const body = document.body
-
-  if (transparent) {
-    html.style.backgroundColor = 'transparent'
-    body.style.backgroundColor = 'transparent'
-    body.classList.add('scanner-active')
+// Toggle scanner mode class on body for CSS targeting
+function setScannerActive(active: boolean) {
+  if (active) {
+    document.body.classList.add('scanner-active')
   } else {
-    html.style.backgroundColor = ''
-    body.style.backgroundColor = ''
-    body.classList.remove('scanner-active')
+    document.body.classList.remove('scanner-active')
   }
 }
 
-export default function QRScanner({ onScan, onError, isActive }: QRScannerProps) {
+export default function QRScanner({ onScan, onError, onStop, isActive }: QRScannerProps) {
   const [isStarting, setIsStarting] = useState(false)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   const [isNative] = useState(() => Capacitor.isNativePlatform())
@@ -48,7 +42,7 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
       // Stop scanner when not active
       hasScannedRef.current = false
       if (isNative) {
-        setWebViewTransparent(false)
+        setScannerActive(false)
         BarcodeScanner.stopScan().catch(() => {})
         if (scanListenerRef.current) {
           scanListenerRef.current.remove().catch(() => {})
@@ -79,7 +73,7 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
         setHasPermission(true)
 
         // Make WebView transparent so camera shows through
-        setWebViewTransparent(true)
+        setScannerActive(true)
 
         // Add listener for barcodes
         const listener = await BarcodeScanner.addListener('barcodesScanned', handleBarcodesScanned)
@@ -94,7 +88,7 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
       } catch (err) {
         console.error('[QR] Failed to start native scanner:', err)
         setHasPermission(false)
-        setWebViewTransparent(false)
+        setScannerActive(false)
         onError?.(err instanceof Error ? err.message : 'Failed to start camera')
         setIsStarting(false)
       }
@@ -111,7 +105,7 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
     // Cleanup
     return () => {
       if (isNative) {
-        setWebViewTransparent(false)
+        setScannerActive(false)
         BarcodeScanner.stopScan().catch(() => {})
         if (scanListenerRef.current) {
           scanListenerRef.current.remove().catch(() => {})
@@ -121,29 +115,40 @@ export default function QRScanner({ onScan, onError, isActive }: QRScannerProps)
     }
   }, [isActive, isNative, onError, handleBarcodesScanned])
 
-  // Native scanner uses fullscreen camera view, so we show minimal UI
+  // Native scanner - camera renders fullscreen behind webview
+  // We show a transparent viewport with targeting overlay
   if (isNative && isActive && hasPermission) {
     return (
-      <div className="relative aspect-square bg-black rounded-xl overflow-hidden">
-        {/* The native camera view is rendered behind the webview */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center text-white">
-            <p className="text-lg font-medium">Point camera at QR code</p>
-            <p className="text-sm text-gray-300 mt-2">Scanning...</p>
+      <div className="fixed inset-0 z-50 flex flex-col">
+        {/* Transparent camera viewport */}
+        <div className="flex-1 relative" style={{ background: 'transparent' }}>
+          {/* Scanning frame overlay */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-72 h-72 relative">
+              {/* Corner brackets */}
+              <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-white rounded-tl-lg" />
+              <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-white rounded-tr-lg" />
+              <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-white rounded-bl-lg" />
+              <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-white rounded-br-lg" />
+              {/* Scanning line */}
+              <div className="absolute inset-0 overflow-hidden">
+                <div className="w-full h-1 bg-white opacity-75 animate-scan" />
+              </div>
+            </div>
+          </div>
+          {/* Instructions */}
+          <div className="absolute bottom-8 left-0 right-0 text-center">
+            <p className="text-white text-lg font-medium drop-shadow-lg">Point camera at QR code</p>
           </div>
         </div>
-
-        {/* Scanning overlay */}
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64">
-            <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-lg" />
-            <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-lg" />
-            <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-lg" />
-            <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-lg" />
-          </div>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 overflow-hidden">
-            <div className="w-full h-1 bg-blue-500 opacity-75 animate-scan" />
-          </div>
+        {/* Stop button */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 pb-8">
+          <button
+            onClick={onStop}
+            className="w-full py-4 bg-white/90 text-gray-700 rounded-xl font-medium"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     )

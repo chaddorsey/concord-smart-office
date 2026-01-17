@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Capacitor } from '@capacitor/core'
 import { useAuth, usePresence } from '../stores'
 import { presenceService } from '../services/presenceService'
 import type { CheckInResult } from '../services/types'
@@ -56,7 +57,7 @@ function parseQRLocation(data: string): { locationId: string; locationName?: str
 
 export default function ScanIn() {
   const navigate = useNavigate()
-  const { isAuthenticated, connectionStatus, isMockMode } = useAuth()
+  const { isAuthenticated, connectionStatus, isMockMode, connectMock } = useAuth()
   const { currentUserId, isCurrentUserPresent, staff, togglePresence } = usePresence()
 
   // Default to QR mode since NFC requires paid developer account
@@ -69,12 +70,17 @@ export default function ScanIn() {
   // Get current user info
   const currentUser = staff.find(s => s.id === currentUserId)
 
-  // Redirect to login if not authenticated
+  // Auto-enable demo mode on native, or redirect to login
   useEffect(() => {
     if (!isAuthenticated && connectionStatus !== 'connecting') {
-      navigate('/login')
+      if (Capacitor.isNativePlatform()) {
+        // Auto-enable demo mode on native app for easier testing
+        connectMock()
+      } else {
+        navigate('/login')
+      }
     }
-  }, [isAuthenticated, connectionStatus, navigate])
+  }, [isAuthenticated, connectionStatus, navigate, connectMock])
 
   // Handle check-in after scanning a location
   const handleCheckIn = useCallback(async (locationId: string, locationName?: string) => {
@@ -149,9 +155,9 @@ export default function ScanIn() {
     : `Checked in at ${checkInResult?.locationName}!`
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className={`min-h-screen pb-20 scan-page ${isScanning ? '' : 'bg-gray-50'}`}>
       {/* Header */}
-      <header className="bg-blue-600 text-white px-4 py-4 shadow-lg">
+      <header className="scan-header bg-blue-600 text-white px-4 py-4 shadow-lg">
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <Link to="/dashboard" className="p-2 -ml-2 hover:bg-blue-500 rounded-lg transition">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -165,9 +171,9 @@ export default function ScanIn() {
 
       {/* Main Content */}
       <main className="max-w-lg mx-auto p-4 space-y-6">
-        {/* Current User Card */}
-        {currentUser && (
-          <div className="bg-white rounded-xl shadow-sm p-4">
+        {/* Current User Card - hide during scanning */}
+        {currentUser && !isScanning && (
+          <div className="scan-controls bg-white rounded-xl shadow-sm p-4">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-medium text-lg">
                 {currentUser.avatarInitials}
@@ -189,8 +195,9 @@ export default function ScanIn() {
           </div>
         )}
 
-        {/* Mode Toggle */}
-        <div className="bg-white rounded-xl shadow-sm p-2 flex">
+        {/* Mode Toggle - hide during scanning */}
+        {!isScanning && (
+        <div className="scan-controls bg-white rounded-xl shadow-sm p-2 flex">
           <button
             onClick={() => { setScanMode('qr'); setIsScanning(false); setError(null); setCheckInResult(null); }}
             className={`flex-1 py-3 px-4 rounded-lg font-medium transition ${
@@ -222,6 +229,7 @@ export default function ScanIn() {
             Manual
           </button>
         </div>
+        )}
 
         {/* Error Display */}
         {error && (
@@ -260,6 +268,7 @@ export default function ScanIn() {
                       isActive={isScanning}
                       onScan={handleQRScan}
                       onError={(err) => setError(err)}
+                      onStop={() => setIsScanning(false)}
                     />
                   ) : (
                     <div className="aspect-square bg-gray-100 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-300">
