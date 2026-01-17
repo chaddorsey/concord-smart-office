@@ -45,6 +45,8 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Smart Office uses the camera to scan QR codes for check-in and check-out.</string>
 	<key>NFCReaderUsageDescription</key>
 	<string>Smart Office uses NFC to scan staff badges for check-in and check-out.</string>
 	<key>com.apple.developer.nfc.readersession.iso7816.select-identifiers</key>
