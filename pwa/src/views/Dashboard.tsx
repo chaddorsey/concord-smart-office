@@ -16,7 +16,7 @@ export default function Dashboard() {
   const { staff, presentCount, isCurrentUserPresent, isLoading, error, refresh } = usePresence()
   const { playback, skipVoteCount, skipVotesNeeded } = useSpotify()
   const { oasis, leadingPattern, votesNeeded: sandVotesNeeded } = useSandTable()
-  const { frames, playlist, currentImageIndex } = usePhotoFrames()
+  const { frames, mediaLibrary } = usePhotoFrames()
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -241,21 +241,21 @@ export default function Dashboard() {
               </svg>
             </div>
             <div className="flex-1 min-w-0">
-              {playlist.length > 0 ? (
+              {mediaLibrary.length > 0 ? (
                 <>
-                  <p className="text-gray-900 font-medium truncate">{playlist[currentImageIndex]?.title || 'No image'}</p>
-                  <p className="text-gray-500 text-sm truncate">{playlist.length} images in playlist</p>
+                  <p className="text-gray-900 font-medium truncate">{mediaLibrary[0]?.title || 'Media'}</p>
+                  <p className="text-gray-500 text-sm truncate">{mediaLibrary.length} items in library</p>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="flex items-center gap-1 text-indigo-600 text-xs">
                       <span className="w-2 h-2 bg-indigo-600 rounded-full" />
-                      Displaying
+                      {frames.filter(f => f.isOnline).length} frames online
                     </span>
                   </div>
                 </>
               ) : (
                 <>
-                  <p className="text-gray-500 font-medium">No images</p>
-                  <p className="text-gray-400 text-sm">Tap to view photo frames</p>
+                  <p className="text-gray-500 font-medium">No media</p>
+                  <p className="text-gray-400 text-sm">Tap to browse videos</p>
                 </>
               )}
             </div>

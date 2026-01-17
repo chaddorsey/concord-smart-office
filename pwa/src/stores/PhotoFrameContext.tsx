@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { photoFrameService, type PhotoFrame, type MediaItem, type PhotoFrameState } from '../services/photoFrameService'
+import { photoFrameService, type PhotoFrame, type MediaItem, type PhotoFrameState, type QueueItem, type QueueSettings, type MediaOrientation } from '../services/photoFrameService'
 import { useAuth } from './AuthContext'
 import { usePresence } from './PresenceContext'
 
@@ -16,11 +16,17 @@ const DEMO_MEDIA: MediaItem[] = [
 ]
 
 const DEMO_FRAMES: PhotoFrame[] = [
-  { id: '1', name: 'Frame 1 - Lobby', playlist: 'Office Highlights', currentIndex: 0, skipVotes: 0, isOnline: true },
-  { id: '2', name: 'Frame 2 - Kitchen', playlist: 'Team Photos', currentIndex: 0, skipVotes: 0, isOnline: true },
-  { id: '3', name: 'Frame 3 - Meeting Room', playlist: 'Nature', currentIndex: 0, skipVotes: 0, isOnline: false },
-  { id: '4', name: 'Frame 4 - Lounge', playlist: 'Art', currentIndex: 0, skipVotes: 0, isOnline: true },
+  { id: '1', name: 'Frame 1 - Lobby', playlist: 'Office Highlights', currentIndex: 0, skipVotes: 0, isOnline: true, orientation: 'horizontal', queuePosition: 0, queueLength: 0, playedCount: 0, pendingCount: 0 },
+  { id: '2', name: 'Frame 2 - Kitchen', playlist: 'Team Photos', currentIndex: 0, skipVotes: 0, isOnline: true, orientation: 'horizontal', queuePosition: 0, queueLength: 0, playedCount: 0, pendingCount: 0 },
+  { id: '3', name: 'Frame 3 - Meeting Room', playlist: 'Nature', currentIndex: 0, skipVotes: 0, isOnline: false, orientation: 'vertical', queuePosition: 0, queueLength: 0, playedCount: 0, pendingCount: 0 },
+  { id: '4', name: 'Frame 4 - Lounge', playlist: 'Art', currentIndex: 0, skipVotes: 0, isOnline: true, orientation: 'vertical', queuePosition: 0, queueLength: 0, playedCount: 0, pendingCount: 0 },
 ]
+
+const DEMO_QUEUE_SETTINGS: QueueSettings = {
+  queueLimit: 10,
+  imageDisplayTime: 30,
+  videoLoopCount: 3
+}
 
 interface LocalState {
   selectedFrameId: string | null
@@ -37,11 +43,13 @@ interface PhotoFrameContextValue extends PhotoFrameState, LocalState {
   voteSkipFrame: (frameId: string) => Promise<void>
   nextFrameMedia: (frameId: string) => Promise<void>
   previousFrameMedia: (frameId: string) => Promise<void>
+  skipToNextQueueItem: (frameId: string) => Promise<void>
 
   // Playlist browsing
   selectPlaylist: (playlist: string | null) => void
   getPlaylistMedia: (playlist: string) => MediaItem[]
   getCurrentFrameMedia: (frameId: string) => MediaItem | null
+  getCurrentQueueItem: (frameId: string) => QueueItem | null
 
   // Media management
   addMediaToLibrary: (item: MediaItem) => Promise<void>
@@ -50,6 +58,14 @@ interface PhotoFrameContextValue extends PhotoFrameState, LocalState {
   upvoteMedia: (itemId: string) => Promise<void>
   downvoteMedia: (itemId: string) => Promise<void>
   getUserVote: (itemId: string) => 'up' | 'down' | null
+
+  // Queue management
+  addToQueue: (item: Omit<QueueItem, 'addedAt' | 'hasPlayed'>) => Promise<{ assigned: boolean; frameId?: string; reason?: string }>
+  updateQueueSettings: (settings: Partial<QueueSettings>) => Promise<void>
+  setFrameOrientation: (frameId: string, orientation: MediaOrientation) => Promise<void>
+  redistributeHoldingTank: () => Promise<{ distributed: number; remaining: number }>
+  removeFromHoldingTank: (itemId: string) => Promise<void>
+  getAvailableOrientations: () => MediaOrientation[]
 
   // Permissions
   canControl: boolean
@@ -65,7 +81,11 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     frames: [],
     mediaLibrary: [],
     playlists: [],
-    rotationInterval: 30
+    rotationInterval: 30,
+    globalQueue: [],
+    holdingTank: [],
+    frameQueues: {},
+    queueSettings: DEMO_QUEUE_SETTINGS
   })
 
   const [localState, setLocalState] = useState<LocalState>({
@@ -83,22 +103,71 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
         frames: [],
         mediaLibrary: [],
         playlists: [],
-        rotationInterval: 30
+        rotationInterval: 30,
+        globalQueue: [],
+        holdingTank: [],
+        frameQueues: {},
+        queueSettings: DEMO_QUEUE_SETTINGS
       })
       setLocalState(prev => ({ ...prev, isLoading: false }))
       return
     }
 
-    // Use mock data in mock mode
+    // Use local API in mock mode (frame-display server)
     if (isMockMode) {
-      setHaState({
-        frames: DEMO_FRAMES,
-        mediaLibrary: DEMO_MEDIA,
-        playlists: ['Office Highlights', 'Team Photos', 'Nature', 'Art'],
-        rotationInterval: 30
-      })
-      setLocalState(prev => ({ ...prev, isLoading: false, error: null }))
-      return
+      const fetchLocalState = async () => {
+        try {
+          const response = await fetch('http://localhost:3001/api/queue')
+          const data = await response.json()
+
+          // Build frames from local API data
+          const frames: PhotoFrame[] = ['1', '2', '3', '4'].map(id => ({
+            id,
+            name: `Frame ${id}`,
+            playlist: 'Queue Mode',
+            currentIndex: 0,
+            skipVotes: 0,
+            isOnline: true,
+            orientation: (data.frameOrientations?.[id] || 'horizontal') as MediaOrientation,
+            queuePosition: data.framePositions?.[id] || 0,
+            queueLength: data.frameQueues?.[id]?.length || 0,
+            playedCount: (data.frameQueues?.[id] || []).filter((item: QueueItem) => item.hasPlayed).length,
+            pendingCount: (data.frameQueues?.[id] || []).filter((item: QueueItem) => !item.hasPlayed).length
+          }))
+
+          setHaState({
+            frames,
+            mediaLibrary: DEMO_MEDIA,
+            playlists: ['Office Highlights', 'Team Photos', 'Nature', 'Art'],
+            rotationInterval: 30,
+            globalQueue: [],
+            holdingTank: data.holdingTank || [],
+            frameQueues: data.frameQueues || { '1': [], '2': [], '3': [], '4': [] },
+            queueSettings: data.settings || DEMO_QUEUE_SETTINGS
+          })
+          setLocalState(prev => ({ ...prev, isLoading: false, error: null }))
+        } catch (err) {
+          console.error('[PhotoFrame] Failed to fetch from local API:', err)
+          // Fallback to demo data
+          setHaState({
+            frames: DEMO_FRAMES,
+            mediaLibrary: DEMO_MEDIA,
+            playlists: ['Office Highlights', 'Team Photos', 'Nature', 'Art'],
+            rotationInterval: 30,
+            globalQueue: [],
+            holdingTank: [],
+            frameQueues: { '1': [], '2': [], '3': [], '4': [] },
+            queueSettings: DEMO_QUEUE_SETTINGS
+          })
+          setLocalState(prev => ({ ...prev, isLoading: false, error: null }))
+        }
+      }
+
+      fetchLocalState()
+
+      // Poll for updates every 3 seconds
+      const pollInterval = setInterval(fetchLocalState, 3000)
+      return () => clearInterval(pollInterval)
     }
 
     setLocalState(prev => ({ ...prev, isLoading: true }))
@@ -146,7 +215,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       .sort((a, b) => b.votes - a.votes)
   }, [haState.mediaLibrary])
 
-  // Get current media for a frame
+  // Get current media for a frame (legacy playlist mode)
   const getCurrentFrameMedia = useCallback((frameId: string): MediaItem | null => {
     const frame = haState.frames.find(f => f.id === frameId)
     if (!frame) return null
@@ -157,6 +226,16 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     const index = frame.currentIndex % playlistMedia.length
     return playlistMedia[index] || null
   }, [haState.frames, getPlaylistMedia])
+
+  // Get current queue item for a frame
+  const getCurrentQueueItem = useCallback((frameId: string): QueueItem | null => {
+    const frame = haState.frames.find(f => f.id === frameId)
+    const queue = haState.frameQueues[frameId] || []
+    if (!frame || queue.length === 0) return null
+
+    const position = frame.queuePosition % queue.length
+    return queue[position] || null
+  }, [haState.frames, haState.frameQueues])
 
   // Set frame playlist
   const setFramePlaylist = useCallback(async (frameId: string, playlist: string) => {
@@ -358,6 +437,192 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     return localState.userVotes.get(itemId) || null
   }, [localState.userVotes])
 
+  // Add item to queue (routes to appropriate frame based on orientation)
+  const addToQueue = useCallback(async (item: Omit<QueueItem, 'addedAt' | 'hasPlayed'>) => {
+    if (!isCurrentUserPresent) {
+      return { assigned: false, reason: 'User not scanned in' }
+    }
+
+    if (isMockMode) {
+      // Mock mode: use local queue API
+      try {
+        const response = await fetch('http://localhost:3001/api/queue/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item)
+        })
+        const result = await response.json()
+
+        // Also update local state for immediate UI feedback
+        const queueItem: QueueItem = {
+          ...item,
+          addedAt: Date.now(),
+          hasPlayed: false
+        }
+
+        if (result.assigned) {
+          setHaState(prev => ({
+            ...prev,
+            globalQueue: [...prev.globalQueue, queueItem],
+            frameQueues: {
+              ...prev.frameQueues,
+              [result.frameId]: [...(prev.frameQueues[result.frameId] || []), queueItem]
+            }
+          }))
+        } else {
+          setHaState(prev => ({
+            ...prev,
+            holdingTank: [...prev.holdingTank, queueItem]
+          }))
+        }
+
+        return result
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to add to local queue API:', err)
+        return { assigned: false, reason: 'Failed to connect to queue service' }
+      }
+    }
+
+    try {
+      return await photoFrameService.addToQueue(item)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to add to queue:', err)
+      return { assigned: false, reason: 'Failed to add to queue' }
+    }
+  }, [isCurrentUserPresent, isMockMode])
+
+  // Update queue settings
+  const updateQueueSettings = useCallback(async (settings: Partial<QueueSettings>) => {
+    if (!isCurrentUserPresent) return
+
+    if (isMockMode) {
+      try {
+        await fetch('http://localhost:3001/api/queue/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings)
+        })
+        // Local state will be updated by polling
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to update settings via local API:', err)
+      }
+      return
+    }
+
+    try {
+      await photoFrameService.updateQueueSettings(settings)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to update queue settings:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode])
+
+  // Set frame orientation
+  const setFrameOrientation = useCallback(async (frameId: string, orientation: MediaOrientation) => {
+    if (!isCurrentUserPresent) return
+
+    if (isMockMode) {
+      try {
+        await fetch(`http://localhost:3001/api/queue/frame/${frameId}/orientation`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orientation })
+        })
+        // Local state will be updated by polling
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to set orientation via local API:', err)
+      }
+      return
+    }
+
+    try {
+      await photoFrameService.setFrameOrientation(frameId, orientation)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to set frame orientation:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode])
+
+  // Redistribute holding tank
+  const redistributeHoldingTank = useCallback(async () => {
+    if (!isCurrentUserPresent) {
+      return { distributed: 0, remaining: haState.holdingTank.length }
+    }
+
+    if (isMockMode) {
+      // In mock mode, redistribute is handled by re-adding items
+      // For now, just return current state - polling will update
+      return { distributed: 0, remaining: haState.holdingTank.length }
+    }
+
+    try {
+      return await photoFrameService.redistributeHoldingTank()
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to redistribute holding tank:', err)
+      return { distributed: 0, remaining: haState.holdingTank.length }
+    }
+  }, [isCurrentUserPresent, isMockMode, haState.holdingTank])
+
+  // Remove from holding tank
+  const removeFromHoldingTank = useCallback(async (itemId: string) => {
+    if (!isCurrentUserPresent) return
+
+    if (isMockMode) {
+      try {
+        await fetch(`http://localhost:3001/api/queue/holding-tank/${itemId}`, {
+          method: 'DELETE'
+        })
+        // Local state will be updated by polling
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to remove from holding tank via local API:', err)
+      }
+      return
+    }
+
+    try {
+      await photoFrameService.removeFromHoldingTank(itemId)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to remove from holding tank:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode])
+
+  // Skip to next queue item (for vote-to-skip)
+  const skipToNextQueueItem = useCallback(async (frameId: string) => {
+    if (!isCurrentUserPresent) return
+
+    const queue = haState.frameQueues[frameId] || []
+    if (queue.length === 0) return
+
+    const frame = haState.frames.find(f => f.id === frameId)
+    if (!frame) return
+
+    const newPosition = (frame.queuePosition + 1) % queue.length
+
+    if (isMockMode) {
+      try {
+        await fetch(`http://localhost:3001/api/queue/frame/${frameId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ position: newPosition })
+        })
+      } catch (err) {
+        console.error('[PhotoFrame] Failed to skip via local API:', err)
+      }
+      return
+    }
+
+    // For HA mode, update the position entity via service call
+    try {
+      // TODO: Add proper method to photoFrameService for updating queue position
+      console.log(`[PhotoFrame] Would update position to ${newPosition} for frame ${frameId}`)
+    } catch (err) {
+      console.error('[PhotoFrame] Failed to skip queue item:', err)
+    }
+  }, [isCurrentUserPresent, isMockMode, haState.frameQueues, haState.frames])
+
+  // Get available orientations
+  const getAvailableOrientations = useCallback((): MediaOrientation[] => {
+    return photoFrameService.getAvailableOrientations(haState.frames)
+  }, [haState.frames])
+
   const canControl = isCurrentUserPresent
 
   return (
@@ -373,10 +638,18 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
         selectPlaylist,
         getPlaylistMedia,
         getCurrentFrameMedia,
+        getCurrentQueueItem,
+        skipToNextQueueItem,
         addMediaToLibrary,
         upvoteMedia,
         downvoteMedia,
         getUserVote,
+        addToQueue,
+        updateQueueSettings,
+        setFrameOrientation,
+        redistributeHoldingTank,
+        removeFromHoldingTank,
+        getAvailableOrientations,
         canControl
       }}
     >
@@ -394,4 +667,4 @@ export function usePhotoFrames() {
 }
 
 // Re-export types
-export type { PhotoFrame, MediaItem, PhotoFrameState }
+export type { PhotoFrame, MediaItem, PhotoFrameState, QueueItem, QueueSettings, MediaOrientation }

@@ -4,9 +4,37 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 
+// CORS middleware to allow requests from PWA dev server
+app.use((req, res, next) => {
+  const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 const PORT = process.env.PORT || 3001;
 const HA_URL = process.env.HA_URL || 'http://homeassistant.local:8123';
 const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY || '';
+
+// In-memory queue storage (for mock mode without HA)
+const localQueueStore = {
+  frameQueues: { '1': [], '2': [], '3': [], '4': [] },
+  holdingTank: [],
+  settings: {
+    queueLimit: 10,
+    imageDisplayTime: 30,
+    videoLoopCount: 3
+  },
+  frameOrientations: { '1': 'horizontal', '2': 'horizontal', '3': 'vertical', '4': 'vertical' },
+  framePositions: { '1': 0, '2': 0, '3': 0, '4': 0 }
+};
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -17,6 +45,10 @@ app.get('/frame/:id', (req, res) => {
   if (frameId < 1 || frameId > 4) {
     return res.status(404).send('Frame not found. Valid frames: 1-4');
   }
+  // Prevent caching to ensure latest code is always served
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.sendFile(path.join(__dirname, 'public', 'frame.html'));
 });
 
@@ -31,6 +63,106 @@ app.get('/api/config', (req, res) => {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'frame-display' });
+});
+
+// ============ Local Queue API (for mock mode without HA) ============
+
+// Get all queue data
+app.get('/api/queue', (req, res) => {
+  res.json(localQueueStore);
+});
+
+// Get queue for a specific frame
+app.get('/api/queue/frame/:id', (req, res) => {
+  const frameId = req.params.id;
+  res.json({
+    queue: localQueueStore.frameQueues[frameId] || [],
+    position: localQueueStore.framePositions[frameId] || 0,
+    orientation: localQueueStore.frameOrientations[frameId] || 'horizontal',
+    settings: localQueueStore.settings
+  });
+});
+
+// Add item to queue
+app.post('/api/queue/add', (req, res) => {
+  const item = req.body;
+  if (!item || !item.id || !item.orientation) {
+    return res.status(400).json({ error: 'Invalid item' });
+  }
+
+  const queueItem = {
+    ...item,
+    addedAt: Date.now(),
+    hasPlayed: false
+  };
+
+  // Find frames with matching orientation
+  const matchingFrames = Object.entries(localQueueStore.frameOrientations)
+    .filter(([, orientation]) => orientation === item.orientation)
+    .map(([id]) => id);
+
+  if (matchingFrames.length === 0) {
+    // No matching frames - add to holding tank
+    localQueueStore.holdingTank.push(queueItem);
+    return res.json({ assigned: false, reason: `No ${item.orientation} frames available` });
+  }
+
+  // Find frame with shortest queue
+  const targetFrameId = matchingFrames.reduce((shortest, frameId) => {
+    const currentQueue = localQueueStore.frameQueues[frameId] || [];
+    const shortestQueue = localQueueStore.frameQueues[shortest] || [];
+    return currentQueue.length < shortestQueue.length ? frameId : shortest;
+  });
+
+  // Add to frame queue
+  if (!localQueueStore.frameQueues[targetFrameId]) {
+    localQueueStore.frameQueues[targetFrameId] = [];
+  }
+  localQueueStore.frameQueues[targetFrameId].push(queueItem);
+
+  res.json({ assigned: true, frameId: targetFrameId });
+});
+
+// Update frame queue (for sync from frame display)
+app.put('/api/queue/frame/:id', (req, res) => {
+  const frameId = req.params.id;
+  const { queue, position } = req.body;
+
+  if (queue !== undefined) {
+    localQueueStore.frameQueues[frameId] = queue;
+  }
+  if (position !== undefined) {
+    localQueueStore.framePositions[frameId] = position;
+  }
+
+  res.json({ success: true });
+});
+
+// Update settings
+app.put('/api/queue/settings', (req, res) => {
+  const settings = req.body;
+  localQueueStore.settings = { ...localQueueStore.settings, ...settings };
+  res.json({ success: true, settings: localQueueStore.settings });
+});
+
+// Set frame orientation
+app.put('/api/queue/frame/:id/orientation', (req, res) => {
+  const frameId = req.params.id;
+  const { orientation } = req.body;
+  localQueueStore.frameOrientations[frameId] = orientation;
+  res.json({ success: true });
+});
+
+// Get holding tank
+app.get('/api/queue/holding-tank', (req, res) => {
+  res.json({ items: localQueueStore.holdingTank });
+});
+
+// Remove from holding tank
+app.delete('/api/queue/holding-tank/:id', (req, res) => {
+  const itemId = req.params.id;
+  localQueueStore.holdingTank = localQueueStore.holdingTank.filter(item => item.id !== itemId);
+  res.json({ success: true });
 });
 
 // Pixabay video search API
@@ -69,22 +201,37 @@ app.get('/api/pixabay/videos', async (req, res) => {
     }
 
     // Transform to our format
-    const videos = (data.hits || []).map(hit => ({
-      id: `pixabay_${hit.id}`,
-      source: 'pixabay',
-      sourceId: hit.id,
-      title: hit.tags || 'Untitled',
-      type: 'video',
-      thumbnail: hit.videos?.tiny?.thumbnail || hit.videos?.small?.thumbnail || '',
-      previewUrl: hit.videos?.tiny?.url || hit.videos?.small?.url || '',
-      url: hit.videos?.medium?.url || hit.videos?.small?.url || '',
-      hdUrl: hit.videos?.large?.url || hit.videos?.medium?.url || '',
-      duration: hit.duration,
-      user: hit.user,
-      tags: hit.tags,
-      views: hit.views,
-      downloads: hit.downloads
-    }));
+    const videos = (data.hits || []).map(hit => {
+      // Get video dimensions from medium quality (or fallback to small)
+      const videoInfo = hit.videos?.medium || hit.videos?.small || {};
+      const width = videoInfo.width || 1920;
+      const height = videoInfo.height || 1080;
+      const orientation = width >= height ? 'horizontal' : 'vertical';
+
+      // Create a cleaner title from the first 2-3 tags
+      const tags = (hit.tags || '').split(', ').slice(0, 3).join(', ');
+      const title = tags || 'Untitled';
+
+      return {
+        id: `pixabay_${hit.id}`,
+        source: 'pixabay',
+        sourceId: hit.id,
+        title,
+        type: 'video',
+        thumbnail: hit.videos?.tiny?.thumbnail || hit.videos?.small?.thumbnail || '',
+        previewUrl: hit.videos?.tiny?.url || hit.videos?.small?.url || '',
+        url: hit.videos?.medium?.url || hit.videos?.small?.url || '',
+        hdUrl: hit.videos?.large?.url || hit.videos?.medium?.url || '',
+        duration: hit.duration,
+        user: hit.user,
+        tags: hit.tags,
+        views: hit.views,
+        downloads: hit.downloads,
+        width,
+        height,
+        orientation
+      };
+    });
 
     res.json({
       total: data.totalHits,
@@ -155,11 +302,11 @@ app.get('/', (req, res) => {
       </div>
 
       <div class="section">
-        <h2>Frame Displays</h2>
-        <a class="secondary" href="/frame/1">Frame 1</a>
-        <a class="secondary" href="/frame/2">Frame 2</a>
-        <a class="secondary" href="/frame/3">Frame 3</a>
-        <a class="secondary" href="/frame/4">Frame 4</a>
+        <h2>Frame Displays (Local Mode)</h2>
+        <a class="secondary" href="/frame/1?local=1&debug=1">Frame 1 (Horizontal) - ${localQueueStore.frameQueues['1'].length} items</a>
+        <a class="secondary" href="/frame/2?local=1&debug=1">Frame 2 (Horizontal) - ${localQueueStore.frameQueues['2'].length} items</a>
+        <a class="secondary" href="/frame/3?local=1&debug=1">Frame 3 (Vertical) - ${localQueueStore.frameQueues['3'].length} items</a>
+        <a class="secondary" href="/frame/4?local=1&debug=1">Frame 4 (Vertical) - ${localQueueStore.frameQueues['4'].length} items</a>
       </div>
 
       <div class="status">

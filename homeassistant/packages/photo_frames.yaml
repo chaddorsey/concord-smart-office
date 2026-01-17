@@ -1,5 +1,9 @@
 # Concord Smart Office - Photo Frames Package
-# Manages 4 digital photo frames with playlist and voting support
+# Manages 4 digital photo frames with queue-based playback and voting support
+
+# =============================================================================
+# QUEUE SYSTEM SETTINGS
+# =============================================================================
 
 # Frame configuration - which playlist each frame displays
 input_select:
@@ -42,6 +46,39 @@ input_select:
       - "Art"
     initial: "Art"
     icon: mdi:image-multiple
+
+  # Frame orientations (for queue distribution)
+  frame_1_orientation:
+    name: "Frame 1 - Orientation"
+    options:
+      - "horizontal"
+      - "vertical"
+    initial: "horizontal"
+    icon: mdi:crop-landscape
+
+  frame_2_orientation:
+    name: "Frame 2 - Orientation"
+    options:
+      - "horizontal"
+      - "vertical"
+    initial: "horizontal"
+    icon: mdi:crop-landscape
+
+  frame_3_orientation:
+    name: "Frame 3 - Orientation"
+    options:
+      - "horizontal"
+      - "vertical"
+    initial: "vertical"
+    icon: mdi:crop-portrait
+
+  frame_4_orientation:
+    name: "Frame 4 - Orientation"
+    options:
+      - "horizontal"
+      - "vertical"
+    initial: "vertical"
+    icon: mdi:crop-portrait
 
 # Current media index for each frame (for rotation)
 input_number:
@@ -121,6 +158,100 @@ input_number:
     unit_of_measurement: "seconds"
     icon: mdi:timer
 
+  # Queue system settings
+  photo_frame_queue_limit:
+    name: "Queue Limit"
+    min: 5
+    max: 50
+    step: 1
+    initial: 10
+    icon: mdi:playlist-play
+    mode: slider
+
+  photo_frame_image_display_time:
+    name: "Image Display Time"
+    min: 5
+    max: 120
+    step: 5
+    initial: 30
+    unit_of_measurement: "seconds"
+    icon: mdi:timer-sand
+    mode: slider
+
+  photo_frame_video_loop_count:
+    name: "Video Loop Count"
+    min: 1
+    max: 10
+    step: 1
+    initial: 3
+    icon: mdi:repeat
+    mode: slider
+
+  # Per-frame queue position tracking
+  frame_1_queue_position:
+    name: "Frame 1 - Queue Position"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_1_loop_count:
+    name: "Frame 1 - Current Loop Count"
+    min: 0
+    max: 20
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_2_queue_position:
+    name: "Frame 2 - Queue Position"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_2_loop_count:
+    name: "Frame 2 - Current Loop Count"
+    min: 0
+    max: 20
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_3_queue_position:
+    name: "Frame 3 - Queue Position"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_3_loop_count:
+    name: "Frame 3 - Current Loop Count"
+    min: 0
+    max: 20
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_4_queue_position:
+    name: "Frame 4 - Queue Position"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    mode: box
+
+  frame_4_loop_count:
+    name: "Frame 4 - Current Loop Count"
+    min: 0
+    max: 20
+    step: 1
+    initial: 0
+    mode: box
+
 # Media library stored as JSON in input_text (simple approach)
 # In production, this could be a database or file-based system
 input_text:
@@ -139,6 +270,40 @@ input_text:
         {"id": "8", "url": "https://images.unsplash.com/photo-1549490349-8643362247b5?w=1920", "type": "image", "title": "Colorful Pattern", "playlist": "Art", "votes": 6}
       ]
 
+  # Global media queue (JSON array of QueueItem objects)
+  # QueueItem: {id, url, type, title, orientation, addedAt, hasPlayed}
+  media_queue:
+    name: "Media Queue JSON"
+    max: 65535
+    initial: "[]"
+
+  # Holding tank for media without matching frame orientations
+  holding_tank:
+    name: "Holding Tank JSON"
+    max: 65535
+    initial: "[]"
+
+  # Per-frame queues (assigned media items)
+  frame_1_queue:
+    name: "Frame 1 - Queue JSON"
+    max: 65535
+    initial: "[]"
+
+  frame_2_queue:
+    name: "Frame 2 - Queue JSON"
+    max: 65535
+    initial: "[]"
+
+  frame_3_queue:
+    name: "Frame 3 - Queue JSON"
+    max: 65535
+    initial: "[]"
+
+  frame_4_queue:
+    name: "Frame 4 - Queue JSON"
+    max: 65535
+    initial: "[]"
+
 # Template sensors for frame status
 template:
   - sensor:
@@ -150,6 +315,9 @@ template:
           index: "{{ states('input_number.frame_1_index') | int(0) }}"
           skip_votes: "{{ states('input_number.frame_1_skip_votes') | int(0) }}"
           frame_id: 1
+          orientation: "{{ states('input_select.frame_1_orientation') }}"
+          queue_position: "{{ states('input_number.frame_1_queue_position') | int(0) }}"
+          loop_count: "{{ states('input_number.frame_1_loop_count') | int(0) }}"
 
       - name: "Frame 2 Status"
         unique_id: frame_2_status
@@ -159,6 +327,9 @@ template:
           index: "{{ states('input_number.frame_2_index') | int(0) }}"
           skip_votes: "{{ states('input_number.frame_2_skip_votes') | int(0) }}"
           frame_id: 2
+          orientation: "{{ states('input_select.frame_2_orientation') }}"
+          queue_position: "{{ states('input_number.frame_2_queue_position') | int(0) }}"
+          loop_count: "{{ states('input_number.frame_2_loop_count') | int(0) }}"
 
       - name: "Frame 3 Status"
         unique_id: frame_3_status
@@ -168,6 +339,9 @@ template:
           index: "{{ states('input_number.frame_3_index') | int(0) }}"
           skip_votes: "{{ states('input_number.frame_3_skip_votes') | int(0) }}"
           frame_id: 3
+          orientation: "{{ states('input_select.frame_3_orientation') }}"
+          queue_position: "{{ states('input_number.frame_3_queue_position') | int(0) }}"
+          loop_count: "{{ states('input_number.frame_3_loop_count') | int(0) }}"
 
       - name: "Frame 4 Status"
         unique_id: frame_4_status
@@ -177,6 +351,9 @@ template:
           index: "{{ states('input_number.frame_4_index') | int(0) }}"
           skip_votes: "{{ states('input_number.frame_4_skip_votes') | int(0) }}"
           frame_id: 4
+          orientation: "{{ states('input_select.frame_4_orientation') }}"
+          queue_position: "{{ states('input_number.frame_4_queue_position') | int(0) }}"
+          loop_count: "{{ states('input_number.frame_4_loop_count') | int(0) }}"
 
       - name: "Frames Overview"
         unique_id: frames_overview
@@ -184,6 +361,9 @@ template:
         attributes:
           frame_count: 4
           rotation_interval: "{{ states('input_number.frame_rotation_interval') | int(30) }}"
+          queue_limit: "{{ states('input_number.photo_frame_queue_limit') | int(10) }}"
+          image_display_time: "{{ states('input_number.photo_frame_image_display_time') | int(30) }}"
+          video_loop_count: "{{ states('input_number.photo_frame_video_loop_count') | int(3) }}"
 
 # Scripts for frame control
 script:

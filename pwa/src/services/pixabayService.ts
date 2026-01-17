@@ -1,5 +1,7 @@
 // Pixabay video service - fetches videos from the frame-display server proxy
 
+export type VideoOrientation = 'horizontal' | 'vertical'
+
 export interface PixabayVideo {
   id: string
   source: 'pixabay'
@@ -15,6 +17,9 @@ export interface PixabayVideo {
   tags: string
   views: number
   downloads: number
+  width: number
+  height: number
+  orientation: VideoOrientation
 }
 
 export interface PixabaySearchResult {
