@@ -329,10 +329,6 @@ export default function ScanIn() {
                   disabled={!!checkInResult?.success}
                 >
                   <option value="">Choose a location...</option>
-                  <option value="main-entrance">Main Entrance</option>
-                  <option value="lobby">Lobby</option>
-                  <option value="back-door">Back Door</option>
-                  <option value="front-exit">Front Exit</option>
                   <option value="office">Office</option>
                 </select>
               </div>
