@@ -1,0 +1,185 @@
+# Concord Smart Office - Development Testing Package
+# Provides mock entities when real integrations aren't available
+# Remove or disable this in production
+
+# Mock media player for Spotify testing (when SpotifyPlus isn't installed)
+# This simulates a basic media_player entity
+input_boolean:
+  mock_spotify_playing:
+    name: "Mock Spotify - Playing"
+    icon: mdi:play-pause
+
+input_text:
+  mock_spotify_track:
+    name: "Mock Spotify - Track"
+    initial: "Bohemian Rhapsody"
+    icon: mdi:music
+
+  mock_spotify_artist:
+    name: "Mock Spotify - Artist"
+    initial: "Queen"
+    icon: mdi:account-music
+
+  mock_spotify_album:
+    name: "Mock Spotify - Album"
+    initial: "A Night at the Opera"
+    icon: mdi:album
+
+input_number:
+  mock_spotify_volume:
+    name: "Mock Spotify - Volume"
+    min: 0
+    max: 100
+    step: 1
+    initial: 50
+    icon: mdi:volume-high
+
+  mock_spotify_progress:
+    name: "Mock Spotify - Progress"
+    min: 0
+    max: 100
+    step: 1
+    initial: 0
+    icon: mdi:progress-clock
+
+# Mock Oasis Sand Table
+input_select:
+  mock_oasis_pattern:
+    name: "Mock Oasis - Pattern"
+    options:
+      - "Zen Garden"
+      - "Ocean Waves"
+      - "Spiral Galaxy"
+      - "Mountain Range"
+      - "Desert Dunes"
+      - "Celtic Knot"
+      - "Mandala"
+      - "Fibonacci"
+    initial: "Zen Garden"
+    icon: mdi:blur
+
+  mock_oasis_status:
+    name: "Mock Oasis - Status"
+    options:
+      - "idle"
+      - "playing"
+      - "paused"
+    initial: "idle"
+    icon: mdi:information
+
+input_boolean:
+  mock_oasis_power:
+    name: "Mock Oasis - Power"
+    icon: mdi:power
+
+input_number:
+  mock_oasis_led_brightness:
+    name: "Mock Oasis - LED Brightness"
+    min: 0
+    max: 255
+    step: 1
+    initial: 128
+    icon: mdi:brightness-6
+
+# Mock Photo Frames
+input_boolean:
+  mock_frame_1_online:
+    name: "Mock Frame 1 - Online"
+    initial: true
+    icon: mdi:monitor
+
+  mock_frame_2_online:
+    name: "Mock Frame 2 - Online"
+    initial: true
+    icon: mdi:monitor
+
+  mock_frame_3_online:
+    name: "Mock Frame 3 - Online"
+    initial: false
+    icon: mdi:monitor
+
+  mock_frame_4_online:
+    name: "Mock Frame 4 - Online"
+    initial: true
+    icon: mdi:monitor
+
+# Template sensors to provide media_player-like attributes
+template:
+  - sensor:
+      - name: "Mock Spotify Player"
+        unique_id: mock_spotify_player
+        state: >
+          {{ 'playing' if is_state('input_boolean.mock_spotify_playing', 'on') else 'paused' }}
+        attributes:
+          media_title: "{{ states('input_text.mock_spotify_track') }}"
+          media_artist: "{{ states('input_text.mock_spotify_artist') }}"
+          media_album_name: "{{ states('input_text.mock_spotify_album') }}"
+          volume_level: "{{ states('input_number.mock_spotify_volume') | float(50) / 100 }}"
+          media_position: "{{ states('input_number.mock_spotify_progress') | float(0) }}"
+          media_duration: 354
+          shuffle: false
+          repeat: "off"
+          source: "Mock Device"
+          entity_picture: "https://i.scdn.co/image/ab67616d0000b273ce4f1737bc8a646c8c4bd25a"
+
+      - name: "Mock Oasis Status"
+        unique_id: mock_oasis_status_sensor
+        state: "{{ states('input_select.mock_oasis_status') }}"
+        attributes:
+          current_pattern: "{{ states('input_select.mock_oasis_pattern') }}"
+          led_brightness: "{{ states('input_number.mock_oasis_led_brightness') | int(128) }}"
+          power: "{{ is_state('input_boolean.mock_oasis_power', 'on') }}"
+
+# Scripts for mock controls
+script:
+  mock_spotify_play:
+    alias: "Mock Spotify - Play"
+    sequence:
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.mock_spotify_playing
+
+  mock_spotify_pause:
+    alias: "Mock Spotify - Pause"
+    sequence:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.mock_spotify_playing
+
+  mock_spotify_next:
+    alias: "Mock Spotify - Next Track"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.mock_spotify_track
+        data:
+          value: >
+            {% set tracks = ['Bohemian Rhapsody', 'Hotel California', 'Stairway to Heaven', 'Sweet Child O Mine'] %}
+            {% set current = states('input_text.mock_spotify_track') %}
+            {% set idx = (tracks.index(current) + 1) % (tracks | length) if current in tracks else 0 %}
+            {{ tracks[idx] }}
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.mock_spotify_progress
+        data:
+          value: 0
+
+  mock_oasis_play_pattern:
+    alias: "Mock Oasis - Play Pattern"
+    fields:
+      pattern:
+        description: "Pattern to play"
+    sequence:
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.mock_oasis_pattern
+        data:
+          option: "{{ pattern }}"
+      - service: input_select.select_option
+        target:
+          entity_id: input_select.mock_oasis_status
+        data:
+          option: "playing"
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.mock_oasis_power

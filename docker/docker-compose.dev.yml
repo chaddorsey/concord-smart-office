@@ -1,14 +1,15 @@
-version: '3.8'
-
 # Development overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 services:
   homeassistant:
+    ports:
+      - "8123:8123"
     environment:
       - HA_ENV=development
-    # Enable debug logging in dev
-    command: ["python", "-m", "homeassistant", "--config", "/config", "--debug"]
+    # Less aggressive restart in dev
+    restart: "no"
 
-  # Mock MQTT broker for testing integrations
+  # Mock MQTT broker for testing integrations (optional)
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: concord-mqtt-dev
@@ -16,6 +17,11 @@ services:
       - "1883:1883"
       - "9001:9001"
     volumes:
-      - ./mosquitto/config:/mosquitto/config
-      - ./mosquitto/data:/mosquitto/data
-      - ./mosquitto/log:/mosquitto/log
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    profiles:
+      - mqtt  # Only start with --profile mqtt
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:

@@ -1,20 +1,19 @@
-version: '3.8'
-
+# Base configuration - extend with dev or prod overrides
 services:
   homeassistant:
     image: ghcr.io/home-assistant/home-assistant:stable
     container_name: concord-ha
     restart: unless-stopped
-    privileged: true
-    network_mode: host
     volumes:
-      - ../homeassistant:/config
-      - /etc/localtime:/etc/localtime:ro
+      - ha-config:/config
     environment:
       - TZ=America/New_York
-
-  # HACS requires initial setup via HA UI
-  # SpotifyPlus and Oasis Mini installed via HACS
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/api/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 volumes:
   ha-config:

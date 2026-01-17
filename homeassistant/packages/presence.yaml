@@ -1,23 +1,68 @@
 # Concord Smart Office - Staff Presence System Package
 
-# Input helpers for tracking staff presence
+# Staff members - matching PWA mock data for seamless dev/prod parity
 input_boolean:
-  # Add staff members here, e.g.:
-  # staff_john_present:
-  #   name: "John - Present"
-  #   icon: mdi:account
+  staff_alice_present:
+    name: "Alice Chen - Present"
+    icon: mdi:account
 
+  staff_bob_present:
+    name: "Bob Smith - Present"
+    icon: mdi:account
+
+  staff_carol_present:
+    name: "Carol Davis - Present"
+    icon: mdi:account
+
+  staff_dave_present:
+    name: "Dave Wilson - Present"
+    icon: mdi:account
+
+  staff_eve_present:
+    name: "Eve Johnson - Present"
+    icon: mdi:account
+
+  staff_frank_present:
+    name: "Frank Brown - Present"
+    icon: mdi:account
+
+# Track arrival times
 input_datetime:
-  # Track arrival times, e.g.:
-  # staff_john_arrival:
-  #   name: "John - Arrival Time"
-  #   has_date: true
-  #   has_time: true
+  staff_alice_arrival:
+    name: "Alice Chen - Arrival Time"
+    has_date: true
+    has_time: true
+
+  staff_bob_arrival:
+    name: "Bob Smith - Arrival Time"
+    has_date: true
+    has_time: true
+
+  staff_carol_arrival:
+    name: "Carol Davis - Arrival Time"
+    has_date: true
+    has_time: true
+
+  staff_dave_arrival:
+    name: "Dave Wilson - Arrival Time"
+    has_date: true
+    has_time: true
+
+  staff_eve_arrival:
+    name: "Eve Johnson - Arrival Time"
+    has_date: true
+    has_time: true
+
+  staff_frank_arrival:
+    name: "Frank Brown - Arrival Time"
+    has_date: true
+    has_time: true
 
 # Template sensors for presence overview
 template:
   - sensor:
       - name: "Staff Currently Present"
+        unique_id: staff_currently_present
         state: >
           {{ states.input_boolean
              | selectattr('entity_id', 'match', 'input_boolean.staff_.*_present')
@@ -29,6 +74,7 @@ template:
                | selectattr('entity_id', 'match', 'input_boolean.staff_.*_present')
                | selectattr('state', 'eq', 'on')
                | map(attribute='name')
+               | map('replace', ' - Present', '')
                | list }}
 
 # Automations for presence management
@@ -52,7 +98,8 @@ automation:
       - event: staff_scanned_in
         event_data:
           staff_id: "{{ trigger.json.staff_id }}"
-          method: "{{ trigger.json.method }}"
+          location: "{{ trigger.json.location | default('unknown') }}"
+          method: "{{ trigger.json.method | default('qr') }}"
 
   - id: presence_scan_out_webhook
     alias: "Presence - Handle Scan Out"
@@ -68,7 +115,8 @@ automation:
       - event: staff_scanned_out
         event_data:
           staff_id: "{{ trigger.json.staff_id }}"
-          method: "{{ trigger.json.method }}"
+          location: "{{ trigger.json.location | default('unknown') }}"
+          method: "{{ trigger.json.method | default('qr') }}"
 
 # Scripts for presence operations
 script:
@@ -76,10 +124,13 @@ script:
     alias: "Scan In Staff Member"
     fields:
       staff_id:
-        description: "Staff member identifier"
-        example: "john"
+        description: "Staff member identifier (e.g., alice, bob)"
+        example: "alice"
+      location:
+        description: "Check-in location"
+        example: "office"
       method:
-        description: "Scan method (qr, nfc)"
+        description: "Scan method (qr, nfc, manual)"
         example: "qr"
     sequence:
       - service: input_boolean.turn_on
@@ -96,8 +147,19 @@ script:
     fields:
       staff_id:
         description: "Staff member identifier"
-        example: "john"
+        example: "alice"
     sequence:
       - service: input_boolean.turn_off
+        target:
+          entity_id: "input_boolean.staff_{{ staff_id }}_present"
+
+  toggle_staff_presence:
+    alias: "Toggle Staff Presence"
+    fields:
+      staff_id:
+        description: "Staff member identifier"
+        example: "alice"
+    sequence:
+      - service: input_boolean.toggle
         target:
           entity_id: "input_boolean.staff_{{ staff_id }}_present"
