@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Capacitor } from '@capacitor/core'
 import { useAuth, usePresence } from '../stores'
-import { presenceService } from '../services/presenceService'
 import type { CheckInResult } from '../services/types'
 import BottomNav from '../components/BottomNav'
 import QRScanner from '../components/QRScanner'
@@ -57,7 +56,7 @@ function parseQRLocation(data: string): { locationId: string; locationName?: str
 
 export default function ScanIn() {
   const navigate = useNavigate()
-  const { isAuthenticated, connectionStatus, isMockMode, connectMock } = useAuth()
+  const { isAuthenticated, connectionStatus, connectMock } = useAuth()
   const { currentUserId, isCurrentUserPresent, staff, togglePresence } = usePresence()
 
   // Default to QR mode since NFC requires paid developer account
@@ -94,29 +93,16 @@ export default function ScanIn() {
     setCheckInResult(null)
 
     try {
-      let result: CheckInResult
+      // Toggle presence via backend API (handles both mock and real modes)
+      await togglePresence()
 
-      if (isMockMode) {
-        // In mock mode, simulate the check-in
-        result = {
-          success: true,
-          userId: currentUserId,
-          locationId,
-          locationName: locationName || locationId,
-          action: isCurrentUserPresent ? 'check-out' : 'check-in',
-          timestamp: new Date().toISOString()
-        }
-        // Actually toggle the presence state
-        await togglePresence(currentUserId)
-        // Simulate delay for UX
-        await new Promise(resolve => setTimeout(resolve, 300))
-      } else {
-        // Real check-in via Home Assistant
-        result = await presenceService.smartCheckIn(
-          currentUserId,
-          locationId,
-          isCurrentUserPresent
-        )
+      const result: CheckInResult = {
+        success: true,
+        userId: currentUserId,
+        locationId,
+        locationName: locationName || locationId,
+        action: isCurrentUserPresent ? 'check-out' : 'check-in',
+        timestamp: new Date().toISOString()
       }
 
       setCheckInResult(result)
@@ -131,7 +117,7 @@ export default function ScanIn() {
       console.error('Check-in failed:', err)
       setError(err instanceof Error ? err.message : 'Check-in failed')
     }
-  }, [currentUserId, isCurrentUserPresent, isMockMode, navigate, togglePresence])
+  }, [currentUserId, isCurrentUserPresent, navigate, togglePresence])
 
   // Handle QR code scan
   const handleQRScan = useCallback((data: string) => {

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Concord Smart Office - Check In</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      padding: 2rem;
+    }
+    .container {
+      text-align: center;
+      max-width: 600px;
+    }
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+      font-weight: 300;
+    }
+    .subtitle {
+      font-size: 1.25rem;
+      opacity: 0.8;
+      margin-bottom: 2rem;
+    }
+    .qr-container {
+      background: white;
+      border-radius: 24px;
+      padding: 2rem;
+      margin: 2rem 0;
+      display: inline-block;
+    }
+    #qrcode {
+      width: 280px;
+      height: 280px;
+    }
+    #qrcode canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+    .backup-code {
+      font-family: monospace;
+      font-size: 1.5rem;
+      letter-spacing: 0.5rem;
+      margin: 1rem 0;
+      opacity: 0.9;
+    }
+    .instruction {
+      font-size: 1.25rem;
+      margin: 1.5rem 0;
+      opacity: 0.9;
+    }
+    .status {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      margin-top: 2rem;
+      font-size: 0.9rem;
+      opacity: 0.7;
+    }
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4ade80;
+    }
+    .time {
+      position: fixed;
+      top: 2rem;
+      right: 2rem;
+      font-size: 2rem;
+      font-weight: 300;
+    }
+    .logo {
+      position: fixed;
+      top: 2rem;
+      left: 2rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    .expires-in {
+      font-size: 0.85rem;
+      opacity: 0.6;
+      margin-top: 0.5rem;
+    }
+    .welcome-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(26, 26, 46, 0.95);
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      z-index: 100;
+    }
+    .welcome-overlay.show {
+      display: flex;
+    }
+    .welcome-overlay h2 {
+      font-size: 3rem;
+      font-weight: 300;
+      margin-bottom: 1rem;
+    }
+    .welcome-overlay .checkmark {
+      font-size: 5rem;
+      margin-bottom: 2rem;
+    }
+    .error {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.5);
+      padding: 1rem 2rem;
+      border-radius: 12px;
+      margin: 1rem 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">Concord</div>
+  <div class="time" id="clock">--:--</div>
+
+  <div class="container">
+    <h1>Smart Office</h1>
+    <p class="subtitle">Welcome! Scan to check in</p>
+
+    <div class="qr-container">
+      <div id="qrcode"></div>
+    </div>
+
+    <p class="backup-code" id="backup-code">------</p>
+    <p class="expires-in" id="expires-info">Refreshing...</p>
+
+    <p class="instruction">Open your phone camera and scan the QR code</p>
+
+    <div class="status">
+      <div class="status-item">
+        <span class="dot"></span>
+        <span id="present-count">0 people in office</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="welcome-overlay" id="welcome-overlay">
+    <div class="checkmark">✓</div>
+    <h2 id="welcome-name">Welcome!</h2>
+  </div>
+
+  <script>
+    // Configuration
+    const KIOSK_ID = new URLSearchParams(window.location.search).get('id') || 'entry1';
+    const REFRESH_INTERVAL = 30000; // 30 seconds
+    const API_BASE = window.location.origin;
+
+    let currentToken = null;
+    let expiresAt = null;
+
+    // Update clock
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clock').textContent =
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Generate QR code
+    async function refreshToken() {
+      try {
+        const response = await fetch(`${API_BASE}/api/kiosk/token/${KIOSK_ID}`);
+
+        if (!response.ok) {
+          throw new Error('Failed to get token');
+        }
+
+        const data = await response.json();
+        currentToken = data.token;
+        expiresAt = new Date(data.expiresAt);
+
+        // Generate QR code URL
+        const qrUrl = `${window.location.origin}${data.qrData}`;
+
+        // Clear and regenerate QR
+        const qrContainer = document.getElementById('qrcode');
+        qrContainer.innerHTML = '';
+        QRCode.toCanvas(qrContainer.appendChild(document.createElement('canvas')), qrUrl, {
+          width: 280,
+          margin: 0,
+          color: { dark: '#1a1a2e', light: '#ffffff' }
+        });
+
+        // Show backup code (last 6 chars of token)
+        document.getElementById('backup-code').textContent =
+          currentToken.slice(-6).toUpperCase();
+
+        // Update expiry info
+        updateExpiryInfo();
+
+      } catch (error) {
+        console.error('Token refresh error:', error);
+        document.getElementById('qrcode').innerHTML =
+          '<div class="error">Unable to connect. Retrying...</div>';
+      }
+    }
+
+    function updateExpiryInfo() {
+      if (!expiresAt) return;
+      const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+      document.getElementById('expires-info').textContent =
+        `QR refreshes in ${remaining}s`;
+    }
+    setInterval(updateExpiryInfo, 1000);
+
+    // Fetch presence count
+    async function updatePresenceCount() {
+      try {
+        const response = await fetch(`${API_BASE}/api/presence`);
+        if (response.ok) {
+          const data = await response.json();
+          const count = Array.isArray(data) ? data.filter(p => p.status === 'in').length : 0;
+          document.getElementById('present-count').textContent =
+            `${count} ${count === 1 ? 'person' : 'people'} in office`;
+        }
+      } catch (error) {
+        console.error('Presence fetch error:', error);
+      }
+    }
+
+    // Show welcome message
+    function showWelcome(name) {
+      const overlay = document.getElementById('welcome-overlay');
+      document.getElementById('welcome-name').textContent = `Welcome, ${name}!`;
+      overlay.classList.add('show');
+      setTimeout(() => overlay.classList.remove('show'), 5000);
+    }
+
+    // Initial load and intervals
+    refreshToken();
+    updatePresenceCount();
+    setInterval(refreshToken, REFRESH_INTERVAL);
+    setInterval(updatePresenceCount, 10000);
+  </script>
+</body>
+</html>

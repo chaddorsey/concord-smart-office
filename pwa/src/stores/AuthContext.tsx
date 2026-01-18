@@ -1,132 +1,202 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { haWebSocket } from '../services/haWebSocket'
 import { checkMockMode, enableMockMode, disableMockMode, isMockModeEnabled } from '../services/mockData'
 import type { ConnectionStatus } from '../services/types'
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+
+interface User {
+  id: number
+  email: string
+  name: string
+  avatarUrl?: string
+  role: string
+}
 
 interface AuthState {
   isAuthenticated: boolean
   connectionStatus: ConnectionStatus
-  haUrl: string | null
+  user: User | null
   error: string | null
   isMockMode: boolean
+  isLoading: boolean
 }
 
 interface AuthContextValue extends AuthState {
-  connect: (url: string, token: string) => Promise<void>
+  loginWithGoogle: () => void
   connectMock: () => void
-  disconnect: () => void
+  logout: () => Promise<void>
+  checkSession: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-const STORAGE_KEY_URL = 'ha_url'
-const STORAGE_KEY_TOKEN = 'ha_token'
+const MOCK_USER: User = {
+  id: 1,
+  email: 'demo@example.com',
+  name: 'Demo User',
+  avatarUrl: undefined,
+  role: 'user'
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(() => {
-    // Check for mock mode on initial load
-    const mockMode = checkMockMode()
+    // Always start unauthenticated - will check session on mount
     return {
-      isAuthenticated: mockMode,
-      connectionStatus: mockMode ? 'authenticated' : 'disconnected',
-      haUrl: mockMode ? 'mock://demo' : localStorage.getItem(STORAGE_KEY_URL),
+      isAuthenticated: false,
+      connectionStatus: 'disconnected',
+      user: null,
       error: null,
-      isMockMode: mockMode
+      isMockMode: false,
+      isLoading: true // Will check session on mount
     }
   })
 
-  // Listen to connection status changes (skip in mock mode)
-  useEffect(() => {
-    if (state.isMockMode) return
-
-    const unsubscribe = haWebSocket.onStatusChange((status) => {
-      setState(prev => {
-        if (prev.isMockMode) return prev
-        return {
-          ...prev,
-          connectionStatus: status,
-          isAuthenticated: status === 'authenticated',
-          error: status === 'error' ? 'Connection error' : null
-        }
-      })
-    })
-
-    return unsubscribe
-  }, [state.isMockMode])
-
-  // Auto-reconnect on mount if we have stored credentials (skip in mock mode)
-  useEffect(() => {
-    if (isMockModeEnabled()) return
-
-    const storedUrl = localStorage.getItem(STORAGE_KEY_URL)
-    const storedToken = localStorage.getItem(STORAGE_KEY_TOKEN)
-
-    if (storedUrl && storedToken && state.connectionStatus === 'disconnected') {
-      haWebSocket.connect(storedUrl, storedToken).catch((err) => {
-        console.error('[Auth] Auto-reconnect failed:', err)
-        // Clear invalid credentials
-        localStorage.removeItem(STORAGE_KEY_TOKEN)
-      })
-    }
-  }, [])
-
-  const connect = useCallback(async (url: string, token: string) => {
-    setState(prev => ({ ...prev, error: null }))
+  const checkSession = useCallback(async () => {
+    console.log('[Auth] Checking session...')
+    setState(prev => ({ ...prev, isLoading: true, error: null }))
 
     try {
-      await haWebSocket.connect(url, token)
+      const response = await fetch(`${BACKEND_URL}/api/auth/session`, {
+        method: 'GET',
+        credentials: 'include'
+      })
+      console.log('[Auth] Session response status:', response.status)
 
-      // Store credentials on successful connection
-      localStorage.setItem(STORAGE_KEY_URL, url)
-      localStorage.setItem(STORAGE_KEY_TOKEN, token)
-
-      setState(prev => ({
-        ...prev,
-        haUrl: url,
-        isAuthenticated: true,
-        connectionStatus: 'authenticated'
-      }))
+      if (response.ok) {
+        const data = await response.json()
+        console.log('[Auth] Session data:', data)
+        if (data.user) {
+          console.log('[Auth] User found, setting authenticated')
+          setState(prev => ({
+            ...prev,
+            isAuthenticated: true,
+            connectionStatus: 'authenticated',
+            user: data.user,
+            error: null,
+            isLoading: false
+          }))
+        } else {
+          console.log('[Auth] No user in session, setting unauthenticated')
+          setState(prev => ({
+            ...prev,
+            isAuthenticated: false,
+            connectionStatus: 'disconnected',
+            user: null,
+            error: null,
+            isLoading: false
+          }))
+        }
+      } else {
+        console.log('[Auth] Session response not ok, setting unauthenticated')
+        setState(prev => ({
+          ...prev,
+          isAuthenticated: false,
+          connectionStatus: 'disconnected',
+          user: null,
+          error: null,
+          isLoading: false
+        }))
+      }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Connection failed'
+      console.error('[Auth] Session check failed:', err)
+      console.log('[Auth] Error during session check, setting error state')
       setState(prev => ({
         ...prev,
-        error: message,
         isAuthenticated: false,
-        connectionStatus: 'error'
+        connectionStatus: 'error',
+        user: null,
+        error: 'Failed to check session',
+        isLoading: false
       }))
-      throw err
     }
   }, [])
 
-  const connectMock = useCallback(() => {
+  // Check session on mount
+  useEffect(() => {
+    checkSession()
+  }, [checkSession])
+
+  const loginWithGoogle = useCallback(() => {
+    // Redirect to backend OAuth endpoint
+    window.location.href = `${BACKEND_URL}/api/auth/google`
+  }, [])
+
+  const connectMock = useCallback(async () => {
+    setState(prev => ({ ...prev, isLoading: true, error: null }))
+
+    try {
+      // Try backend demo login first
+      const response = await fetch(`${BACKEND_URL}/api/auth/demo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: 'Demo User', email: 'demo@example.com' })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setState({
+          isAuthenticated: true,
+          connectionStatus: 'authenticated',
+          user: data.user,
+          error: null,
+          isMockMode: false, // Using real backend session
+          isLoading: false
+        })
+        return
+      }
+    } catch (err) {
+      console.warn('[Auth] Backend demo login failed, falling back to client mock:', err)
+    }
+
+    // Fallback to client-side mock mode if backend unavailable
     enableMockMode()
     setState({
       isAuthenticated: true,
       connectionStatus: 'authenticated',
-      haUrl: 'mock://demo',
+      user: MOCK_USER,
       error: null,
-      isMockMode: true
+      isMockMode: true,
+      isLoading: false
     })
   }, [])
 
-  const disconnect = useCallback(() => {
+  const logout = useCallback(async () => {
     if (state.isMockMode) {
       disableMockMode()
-    } else {
-      haWebSocket.disconnect()
-      localStorage.removeItem(STORAGE_KEY_TOKEN)
+      setState({
+        isAuthenticated: false,
+        connectionStatus: 'disconnected',
+        user: null,
+        error: null,
+        isMockMode: false,
+        isLoading: false
+      })
+      return
     }
+
+    try {
+      await fetch(`${BACKEND_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      })
+    } catch (err) {
+      console.error('[Auth] Logout request failed:', err)
+    }
+
+    // Clear local state regardless of API success
     setState({
       isAuthenticated: false,
       connectionStatus: 'disconnected',
-      haUrl: null,
+      user: null,
       error: null,
-      isMockMode: false
+      isMockMode: false,
+      isLoading: false
     })
   }, [state.isMockMode])
 
   return (
-    <AuthContext.Provider value={{ ...state, connect, connectMock, disconnect }}>
+    <AuthContext.Provider value={{ ...state, loginWithGoogle, connectMock, logout, checkSession }}>
       {children}
     </AuthContext.Provider>
   )

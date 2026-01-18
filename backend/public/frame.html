@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Concord Frame</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      cursor: none;
+    }
+
+    #media-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    #media-container img,
+    #media-container video {
+      max-width: 100%;
+      max-height: 100%;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #loading {
+      display: none; /* Hidden by default, show only when needed */
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      text-align: center;
+    }
+
+    #loading .spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid #333;
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #error {
+      display: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #ff6b6b;
+      font-family: system-ui, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+
+    /* Transition effect */
+    .fade-out {
+      opacity: 0;
+      transition: opacity 0.5s ease-out;
+    }
+
+    .fade-in {
+      opacity: 1;
+      transition: opacity 0.5s ease-in;
+    }
+
+    /* Debug overlay - hidden by default, show with ?debug=1 */
+    #debug {
+      display: none;
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: #0f0;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 10px;
+      border-radius: 4px;
+      max-width: 300px;
+    }
+
+    #debug.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="media-container">
+    <div id="loading">
+      <div class="spinner"></div>
+      <div>Loading frame...</div>
+    </div>
+    <div id="error">
+      <div>Unable to connect</div>
+      <div style="font-size: 14px; margin-top: 10px;">Retrying...</div>
+    </div>
+  </div>
+  <div id="debug"></div>
+
+  <script>
+    // Get frame ID from URL path
+    const frameId = parseInt(window.location.pathname.split('/').pop(), 10) || 1;
+    const urlParams = new URLSearchParams(window.location.search);
+    const debugMode = urlParams.get('debug') === '1';
+    const haToken = urlParams.get('token') || localStorage.getItem('ha_token') || '';
+    const customHaUrl = urlParams.get('ha') || localStorage.getItem('ha_url') || '';
+
+    // Store token and HA URL if provided
+    if (urlParams.get('token')) {
+      localStorage.setItem('ha_token', urlParams.get('token'));
+    }
+    if (urlParams.get('ha')) {
+      localStorage.setItem('ha_url', urlParams.get('ha'));
+    }
+
+    const debugEl = document.getElementById('debug');
+    const loadingEl = document.getElementById('loading');
+    const errorEl = document.getElementById('error');
+    const containerEl = document.getElementById('media-container');
+
+    if (debugMode) {
+      debugEl.classList.add('visible');
+    }
+
+    function log(msg) {
+      console.log(`[Frame ${frameId}]`, msg);
+      if (debugMode) {
+        const now = new Date().toLocaleTimeString();
+        debugEl.innerHTML = `<div>Frame ${frameId} @ ${now}</div><pre style="margin-top:8px;white-space:pre-wrap;font-size:11px;">${msg}</pre>`;
+      }
+    }
+
+    let ws = null;
+    let wsId = 1;
+    let reconnectTimeout = null;
+    let haConfig = null;
+    let useLocalApi = false;                // Use local API instead of HA
+    let localApiPollInterval = null;
+
+    // Queue-based playback state
+    let frameQueue = [];                    // Queue items assigned to this frame
+    let queuePosition = 0;                  // Current position in queue
+    let currentLoopCount = 0;               // Video loop counter
+    let displayStartTime = null;            // When current image started displaying
+    let imageDisplayTimer = null;           // Timer for image display duration
+
+    // Queue settings (from HA or local API)
+    let queueLimit = 10;
+    let imageDisplayTime = 30;              // seconds
+    let videoLoopCount = 3;
+
+    // Legacy playlist mode (fallback)
+    let mediaLibrary = [];
+    let currentPlaylist = '';
+    let currentIndex = 0;
+    let useQueueMode = false;               // Will switch to true when queue has items
+
+    let currentMediaEl = null;
+
+    // Fetch HA config from our server or use custom URL
+    async function fetchConfig() {
+      if (customHaUrl) {
+        const haUrl = customHaUrl.replace(/\/$/, '');
+        let wsUrl;
+        if (haUrl.startsWith('https://')) {
+          wsUrl = haUrl.replace('https://', 'wss://') + '/api/websocket';
+        } else {
+          wsUrl = haUrl.replace('http://', 'ws://') + '/api/websocket';
+        }
+        haConfig = { haUrl, wsUrl };
+        log(`Using custom HA URL: ${haConfig.haUrl}`);
+        return true;
+      }
+
+      try {
+        const res = await fetch('/api/config');
+        haConfig = await res.json();
+        log(`HA URL: ${haConfig.haUrl}`);
+        return true;
+      } catch (e) {
+        log(`Config fetch failed: ${e.message}`);
+        return false;
+      }
+    }
+
+    // Connect to Home Assistant WebSocket
+    async function connectHA() {
+      if (!haConfig) {
+        const ok = await fetchConfig();
+        if (!ok) {
+          setTimeout(connectHA, 5000);
+          return;
+        }
+      }
+
+      if (!haToken) {
+        log('No HA token. Add ?token=YOUR_TOKEN to URL');
+        errorEl.querySelector('div').textContent = 'No token configured';
+        errorEl.querySelector('div:last-child').textContent = 'Add ?token=YOUR_HA_TOKEN to URL';
+        loadingEl.style.display = 'none';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      log('Connecting to HA...');
+
+      try {
+        ws = new WebSocket(haConfig.wsUrl);
+
+        // Timeout: if no auth_ok within 5 seconds, fall back to local API
+        const connectionTimeout = setTimeout(() => {
+          if (!useLocalApi && ws.readyState !== WebSocket.OPEN) {
+            log('HA connection timeout, switching to local API');
+            ws.close();
+            startLocalApiMode();
+          }
+        }, 5000);
+
+        ws.onopen = () => {
+          log('WebSocket connected');
+          clearTimeout(connectionTimeout);
+        };
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data);
+          handleMessage(msg);
+        };
+
+        ws.onerror = (err) => {
+          log(`WebSocket error: ${err.message || 'Unknown'}`);
+        };
+
+        ws.onclose = (event) => {
+          log(`WebSocket closed: code=${event.code}`);
+          // If HA connection failed, fall back to local API mode
+          if (!useLocalApi && frameQueue.length === 0) {
+            log('HA connection failed, switching to local API mode');
+            startLocalApiMode();
+            return;
+          }
+          loadingEl.style.display = 'block';
+          errorEl.style.display = 'none';
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = setTimeout(connectHA, 3000);
+        };
+      } catch (e) {
+        log(`Connection error: ${e.message}`);
+        // Fall back to local API on connection error
+        if (!useLocalApi) {
+          log('Connection failed, switching to local API mode');
+          startLocalApiMode();
+        } else {
+          setTimeout(connectHA, 5000);
+        }
+      }
+    }
+
+    function sendMessage(msg) {
+      msg.id = wsId++;
+      ws.send(JSON.stringify(msg));
+      return msg.id;
+    }
+
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'auth_required':
+          log('Authenticating...');
+          ws.send(JSON.stringify({ type: 'auth', access_token: haToken }));
+          break;
+
+        case 'auth_ok':
+          log('Authenticated');
+          subscribeToStates();
+          fetchInitialState();
+          break;
+
+        case 'auth_invalid':
+          log('Auth failed: ' + msg.message);
+          errorEl.querySelector('div').textContent = 'Authentication failed';
+          errorEl.querySelector('div:last-child').textContent = 'Check your token';
+          loadingEl.style.display = 'none';
+          errorEl.style.display = 'block';
+          ws.close();
+          break;
+
+        case 'event':
+          if (msg.event?.event_type === 'state_changed') {
+            handleStateChange(msg.event.data);
+          }
+          break;
+
+        case 'result':
+          if (msg.success && msg.result) {
+            handleStatesResult(msg.result);
+          }
+          break;
+      }
+    }
+
+    function subscribeToStates() {
+      sendMessage({
+        type: 'subscribe_events',
+        event_type: 'state_changed'
+      });
+    }
+
+    function fetchInitialState() {
+      sendMessage({ type: 'get_states' });
+    }
+
+    function handleStatesResult(states) {
+      // Get queue settings
+      const limitState = states.find(s => s.entity_id === 'input_number.photo_frame_queue_limit');
+      const displayTimeState = states.find(s => s.entity_id === 'input_number.photo_frame_image_display_time');
+      const loopCountState = states.find(s => s.entity_id === 'input_number.photo_frame_video_loop_count');
+
+      if (limitState) queueLimit = parseInt(limitState.state, 10) || 10;
+      if (displayTimeState) imageDisplayTime = parseInt(displayTimeState.state, 10) || 30;
+      if (loopCountState) videoLoopCount = parseInt(loopCountState.state, 10) || 3;
+
+      // Get frame-specific queue
+      const queueState = states.find(s => s.entity_id === `input_text.frame_${frameId}_queue`);
+      const positionState = states.find(s => s.entity_id === `input_number.frame_${frameId}_queue_position`);
+      const loopState = states.find(s => s.entity_id === `input_number.frame_${frameId}_loop_count`);
+
+      if (queueState) {
+        try {
+          frameQueue = JSON.parse(queueState.state);
+        } catch (e) {
+          frameQueue = [];
+        }
+      }
+
+      if (positionState) {
+        queuePosition = parseInt(positionState.state, 10) || 0;
+      }
+
+      if (loopState) {
+        currentLoopCount = parseInt(loopState.state, 10) || 0;
+      }
+
+      // Legacy: Get playlist and media library for fallback mode
+      const playlistState = states.find(s => s.entity_id === `input_select.frame_${frameId}_playlist`);
+      const indexState = states.find(s => s.entity_id === `input_number.frame_${frameId}_index`);
+      const libraryState = states.find(s => s.entity_id === 'input_text.media_library');
+
+      if (playlistState) currentPlaylist = playlistState.state;
+      if (indexState) currentIndex = parseInt(indexState.state, 10) || 0;
+      if (libraryState) {
+        try {
+          mediaLibrary = JSON.parse(libraryState.state);
+        } catch (e) {
+          mediaLibrary = [];
+        }
+      }
+
+      // Use queue mode if queue has items
+      useQueueMode = frameQueue.length > 0;
+
+      const modeInfo = useQueueMode
+        ? `Queue mode: ${frameQueue.length} items, pos ${queuePosition}`
+        : `Playlist mode: ${currentPlaylist}, idx ${currentIndex}`;
+      log(`${modeInfo}\nSettings: limit=${queueLimit}, imgTime=${imageDisplayTime}s, loops=${videoLoopCount}`);
+
+      loadingEl.style.display = 'none';
+      errorEl.style.display = 'none';
+      updateDisplay();
+    }
+
+    function handleStateChange(data) {
+      const entityId = data.entity_id;
+      const newState = data.new_state?.state;
+
+      // Queue settings updates
+      if (entityId === 'input_number.photo_frame_queue_limit') {
+        queueLimit = parseInt(newState, 10) || 10;
+        log(`Queue limit updated: ${queueLimit}`);
+      } else if (entityId === 'input_number.photo_frame_image_display_time') {
+        imageDisplayTime = parseInt(newState, 10) || 30;
+        log(`Image display time updated: ${imageDisplayTime}s`);
+      } else if (entityId === 'input_number.photo_frame_video_loop_count') {
+        videoLoopCount = parseInt(newState, 10) || 3;
+        log(`Video loop count updated: ${videoLoopCount}`);
+      }
+      // Frame-specific queue updates
+      else if (entityId === `input_text.frame_${frameId}_queue`) {
+        try {
+          frameQueue = JSON.parse(newState);
+          useQueueMode = frameQueue.length > 0;
+          log(`Queue updated: ${frameQueue.length} items`);
+          updateDisplay();
+        } catch (e) {
+          log('Failed to parse queue');
+        }
+      } else if (entityId === `input_number.frame_${frameId}_queue_position`) {
+        const newPos = parseInt(newState, 10) || 0;
+        if (newPos !== queuePosition) {
+          queuePosition = newPos;
+          currentLoopCount = 0;
+          log(`Queue position updated: ${queuePosition}`);
+          updateDisplay();
+        }
+      }
+      // Legacy playlist mode
+      else if (entityId === `input_select.frame_${frameId}_playlist`) {
+        currentPlaylist = newState;
+        currentIndex = 0;
+        log(`Playlist changed: ${currentPlaylist}`);
+        if (!useQueueMode) updateDisplay();
+      } else if (entityId === `input_number.frame_${frameId}_index`) {
+        currentIndex = parseInt(newState, 10) || 0;
+        log(`Index changed: ${currentIndex}`);
+        if (!useQueueMode) updateDisplay();
+      } else if (entityId === 'input_text.media_library') {
+        try {
+          mediaLibrary = JSON.parse(newState);
+          log('Media library updated');
+          if (!useQueueMode) updateDisplay();
+        } catch (e) {
+          log('Failed to parse media library');
+        }
+      }
+    }
+
+    function updateDisplay() {
+      clearTimeout(imageDisplayTimer);
+
+      if (useQueueMode) {
+        updateQueueDisplay();
+      } else {
+        updatePlaylistDisplay();
+      }
+    }
+
+    function updateQueueDisplay() {
+      if (frameQueue.length === 0) {
+        log('Queue empty, falling back to playlist');
+        useQueueMode = false;
+        updatePlaylistDisplay();
+        return;
+      }
+
+      // Wrap position if needed
+      const pos = queuePosition % frameQueue.length;
+      const media = frameQueue[pos];
+
+      if (!media) {
+        log('Invalid queue position');
+        showPlaceholder();
+        return;
+      }
+
+      log(`Queue [${pos + 1}/${frameQueue.length}]: ${media.title || 'Untitled'}\n` +
+          `Type: ${media.type}, Loops: ${currentLoopCount}/${videoLoopCount}`);
+      showMedia(media, true);
+    }
+
+    function updatePlaylistDisplay() {
+      const playlistMedia = mediaLibrary.filter(m => m.playlist === currentPlaylist);
+
+      if (playlistMedia.length === 0) {
+        log('No media in playlist');
+        showPlaceholder();
+        return;
+      }
+
+      const mediaIndex = currentIndex % playlistMedia.length;
+      const media = playlistMedia[mediaIndex];
+
+      log(`Playlist [${mediaIndex + 1}/${playlistMedia.length}]: ${media.title}`);
+      showMedia(media, false);
+    }
+
+    function showMedia(media, isQueueMode) {
+      // Fade out current media
+      if (currentMediaEl) {
+        const oldEl = currentMediaEl;
+        oldEl.classList.add('fade-out');
+        setTimeout(() => {
+          if (oldEl.parentNode) oldEl.remove();
+        }, 500);
+      }
+
+      let el;
+      if (media.type === 'video') {
+        el = document.createElement('video');
+        el.src = media.url || media.hdUrl;
+        el.autoplay = true;
+        el.loop = false; // We handle looping manually for counting
+        el.muted = true;
+        el.playsInline = true;
+
+        if (isQueueMode) {
+          el.addEventListener('ended', handleVideoEnded);
+        } else {
+          el.loop = true; // Legacy mode: just loop forever
+        }
+      } else {
+        el = document.createElement('img');
+        el.src = media.url;
+        el.alt = media.title || 'Frame media';
+      }
+
+      el.style.opacity = '0';
+      containerEl.appendChild(el);
+
+      const onLoad = () => {
+        el.style.opacity = '1';
+        el.classList.add('fade-in');
+
+        // Start image timer for queue mode
+        if (isQueueMode && media.type !== 'video') {
+          displayStartTime = Date.now();
+          imageDisplayTimer = setTimeout(() => {
+            handleImageTimerComplete();
+          }, imageDisplayTime * 1000);
+          log(`Image timer started: ${imageDisplayTime}s`);
+        }
+      };
+
+      if (media.type === 'video') {
+        el.oncanplay = onLoad;
+      } else {
+        el.onload = onLoad;
+      }
+
+      el.onerror = () => {
+        log(`Failed to load: ${media.url}`);
+        el.remove();
+        // Skip to next on error
+        if (isQueueMode) {
+          advanceQueue();
+        } else {
+          showPlaceholder();
+        }
+      };
+
+      currentMediaEl = el;
+    }
+
+    function handleVideoEnded() {
+      currentLoopCount++;
+      log(`Video ended, loop ${currentLoopCount}/${videoLoopCount}`);
+
+      if (currentLoopCount >= videoLoopCount) {
+        // Finished all loops, mark as played and advance
+        markCurrentAsPlayed();
+        advanceQueue();
+      } else {
+        // Replay video
+        if (currentMediaEl && currentMediaEl.tagName === 'VIDEO') {
+          currentMediaEl.currentTime = 0;
+          currentMediaEl.play().catch(e => log(`Replay error: ${e.message}`));
+        }
+        // Sync loop count to HA
+        syncLoopCount();
+      }
+    }
+
+    function handleImageTimerComplete() {
+      log('Image display time complete');
+      markCurrentAsPlayed();
+      advanceQueue();
+    }
+
+    function markCurrentAsPlayed() {
+      if (frameQueue.length === 0) return;
+
+      const pos = queuePosition % frameQueue.length;
+      if (frameQueue[pos]) {
+        frameQueue[pos].hasPlayed = true;
+        // Sync to HA
+        syncFrameQueue();
+      }
+    }
+
+    function advanceQueue() {
+      if (frameQueue.length === 0) return;
+
+      // Increment position
+      let newPosition = queuePosition + 1;
+
+      // If queue exceeds limit, remove oldest played items
+      if (frameQueue.length > queueLimit) {
+        const playedItems = frameQueue.filter(item => item.hasPlayed);
+        const removeCount = Math.min(playedItems.length, frameQueue.length - queueLimit);
+
+        if (removeCount > 0) {
+          // Remove oldest played items from front
+          let removed = 0;
+          frameQueue = frameQueue.filter(item => {
+            if (item.hasPlayed && removed < removeCount) {
+              removed++;
+              return false;
+            }
+            return true;
+          });
+
+          // Adjust position for removed items
+          newPosition = Math.max(0, newPosition - removed);
+          log(`Trimmed ${removed} played items, queue now ${frameQueue.length}`);
+        }
+      }
+
+      // Wrap position for looping
+      if (newPosition >= frameQueue.length) {
+        newPosition = 0;
+        log('Queue wrapped to beginning');
+      }
+
+      queuePosition = newPosition;
+      currentLoopCount = 0;
+
+      // Sync position to HA
+      syncQueuePosition();
+      syncLoopCount();
+      syncFrameQueue();
+
+      updateDisplay();
+    }
+
+    // Sync functions to update HA state
+    function syncQueuePosition() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      sendMessage({
+        type: 'call_service',
+        domain: 'input_number',
+        service: 'set_value',
+        service_data: { value: queuePosition },
+        target: { entity_id: `input_number.frame_${frameId}_queue_position` }
+      });
+    }
+
+    function syncLoopCount() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      sendMessage({
+        type: 'call_service',
+        domain: 'input_number',
+        service: 'set_value',
+        service_data: { value: currentLoopCount },
+        target: { entity_id: `input_number.frame_${frameId}_loop_count` }
+      });
+    }
+
+    function syncFrameQueue() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      sendMessage({
+        type: 'call_service',
+        domain: 'input_text',
+        service: 'set_value',
+        service_data: { value: JSON.stringify(frameQueue) },
+        target: { entity_id: `input_text.frame_${frameId}_queue` }
+      });
+    }
+
+    function showPlaceholder() {
+      clearTimeout(imageDisplayTimer);
+      if (currentMediaEl) {
+        currentMediaEl.remove();
+        currentMediaEl = null;
+      }
+
+      const el = document.createElement('div');
+      el.style.cssText = 'color: #666; font-family: system-ui; text-align: center;';
+      el.innerHTML = `
+        <div style="font-size: 48px;">Frame ${frameId}</div>
+        <div style="margin-top: 10px;">${useQueueMode ? 'Queue empty' : (currentPlaylist || 'No playlist')}</div>
+      `;
+      containerEl.appendChild(el);
+      currentMediaEl = el;
+    }
+
+    // ============ Local API Mode ============
+
+    async function fetchFromLocalApi() {
+      try {
+        const response = await fetch(`/api/queue/frame/${frameId}`);
+        if (!response.ok) throw new Error('API error');
+        const data = await response.json();
+
+        // Update settings
+        if (data.settings) {
+          queueLimit = data.settings.queueLimit || 10;
+          imageDisplayTime = data.settings.imageDisplayTime || 30;
+          videoLoopCount = data.settings.videoLoopCount || 3;
+        }
+
+        // Check if queue changed
+        const newQueue = data.queue || [];
+        const queueChanged = JSON.stringify(newQueue) !== JSON.stringify(frameQueue);
+
+        frameQueue = newQueue;
+
+        // Only update position if we don't have local changes pending
+        if (data.position !== undefined && !queueChanged) {
+          queuePosition = data.position;
+        }
+
+        useQueueMode = frameQueue.length > 0;
+
+        return { changed: queueChanged };
+      } catch (err) {
+        log(`Local API error: ${err.message}`);
+        return { changed: false };
+      }
+    }
+
+    async function syncToLocalApi() {
+      try {
+        await fetch(`/api/queue/frame/${frameId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            queue: frameQueue,
+            position: queuePosition
+          })
+        });
+      } catch (err) {
+        log(`Sync error: ${err.message}`);
+      }
+    }
+
+    async function startLocalApiMode() {
+      useLocalApi = true;
+      // Always show debug in local mode
+      debugEl.classList.add('visible');
+      log('Using Local API mode (no HA)');
+
+      // Hide loading immediately
+      loadingEl.style.display = 'none';
+      errorEl.style.display = 'none';
+
+      // Initial fetch
+      try {
+        const response = await fetch(`/api/queue/frame/${frameId}`);
+        const data = await response.json();
+        log(`API response: ${JSON.stringify(data).substring(0, 200)}`);
+
+        frameQueue = data.queue || [];
+        queuePosition = data.position || 0;
+        if (data.settings) {
+          queueLimit = data.settings.queueLimit || 10;
+          imageDisplayTime = data.settings.imageDisplayTime || 30;
+          videoLoopCount = data.settings.videoLoopCount || 3;
+        }
+        useQueueMode = frameQueue.length > 0;
+      } catch (err) {
+        log(`Fetch error: ${err.message}`);
+        // Show placeholder on error
+        showPlaceholder();
+        return;
+      }
+
+      if (frameQueue.length > 0) {
+        log(`Local queue: ${frameQueue.length} items, pos ${queuePosition}`);
+        log(`First item: ${JSON.stringify(frameQueue[0]).substring(0, 100)}`);
+        updateDisplay();
+      } else {
+        log('Queue empty - waiting for media...');
+        showPlaceholder();
+      }
+
+      // Poll for updates every 2 seconds
+      localApiPollInterval = setInterval(async () => {
+        const { changed } = await fetchFromLocalApi();
+        if (changed) {
+          log(`Queue updated: ${frameQueue.length} items`);
+          if (frameQueue.length > 0 && !useQueueMode) {
+            useQueueMode = true;
+          }
+          updateDisplay();
+        }
+      }, 2000);
+    }
+
+    // Modify sync functions to use local API when in local mode
+    const originalSyncQueuePosition = syncQueuePosition;
+    syncQueuePosition = function() {
+      if (useLocalApi) {
+        syncToLocalApi();
+      } else {
+        originalSyncQueuePosition();
+      }
+    };
+
+    const originalSyncFrameQueue = syncFrameQueue;
+    syncFrameQueue = function() {
+      if (useLocalApi) {
+        syncToLocalApi();
+      } else {
+        originalSyncFrameQueue();
+      }
+    };
+
+    // Prevent screen sleep
+    async function preventSleep() {
+      try {
+        if ('wakeLock' in navigator) {
+          await navigator.wakeLock.request('screen');
+          log('Wake lock acquired');
+        }
+      } catch (e) {
+        log('Wake lock not available');
+      }
+    }
+
+    // Initialize
+    preventSleep();
+
+    // Failsafe: hide loading after 3 seconds no matter what
+    setTimeout(() => {
+      if (loadingEl.style.display !== 'none') {
+        log('Failsafe: hiding loading after timeout');
+        loadingEl.style.display = 'none';
+        if (!currentMediaEl && !useLocalApi) {
+          // Nothing loaded yet, force local API mode
+          startLocalApiMode();
+        }
+      }
+    }, 3000);
+
+    // Check URL params for mode - prefer local API for simplicity
+    const useLocal = urlParams.get('local') === '1';
+    const forceHA = urlParams.get('ha_mode') === '1';
+
+    if (forceHA && haToken) {
+      // Only try HA if explicitly requested with ha_mode=1
+      connectHA();
+    } else {
+      // Default to local API mode (more reliable)
+      startLocalApiMode();
+    }
+  </script>
+</body>
+</html>

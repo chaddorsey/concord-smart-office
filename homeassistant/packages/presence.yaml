@@ -1,6 +1,34 @@
 # Concord Smart Office - Staff Presence System Package
+# Updated to work with StaffWeek backend webhooks
 
-# Staff members - matching PWA mock data for seamless dev/prod parity
+# ============================================================================
+# INPUT TEXT - Dynamic user tracking
+# ============================================================================
+# Store user data dynamically when they check in
+# Format: user_id|user_name|user_email|timestamp|room_id
+input_text:
+  # Stores JSON list of currently checked-in users
+  presence_checked_in_users:
+    name: "Checked In Users Data"
+    max: 65535
+    initial: "[]"
+
+  # Last check-in event (for debugging/display)
+  presence_last_checkin:
+    name: "Last Check-In Event"
+    max: 255
+    initial: ""
+
+  # Last check-out event (for debugging/display)
+  presence_last_checkout:
+    name: "Last Check-Out Event"
+    max: 255
+    initial: ""
+
+# ============================================================================
+# LEGACY - Staff members (keeping for backward compatibility)
+# These input_booleans allow existing automations to continue working
+# ============================================================================
 input_boolean:
   staff_alice_present:
     name: "Alice Chen - Present"
@@ -26,7 +54,9 @@ input_boolean:
     name: "Frank Brown - Present"
     icon: mdi:account
 
-# Track arrival times
+# ============================================================================
+# LEGACY - Track arrival times (keeping for backward compatibility)
+# ============================================================================
 input_datetime:
   staff_alice_arrival:
     name: "Alice Chen - Arrival Time"
@@ -58,11 +88,65 @@ input_datetime:
     has_date: true
     has_time: true
 
-# Template sensors for presence overview
+# ============================================================================
+# TEMPLATE SENSORS - Presence overview
+# ============================================================================
 template:
   - sensor:
+      # Count of staff currently present (from dynamic list)
       - name: "Staff Currently Present"
         unique_id: staff_currently_present
+        state: >
+          {% set users = states('input_text.presence_checked_in_users') %}
+          {% if users and users != 'unknown' and users != 'unavailable' %}
+            {% set parsed = users | from_json | default([]) %}
+            {{ parsed | length }}
+          {% else %}
+            0
+          {% endif %}
+        icon: mdi:account-group
+
+      # List of names currently present
+      - name: "Staff Presence List"
+        unique_id: staff_presence_list
+        state: >
+          {% set users = states('input_text.presence_checked_in_users') %}
+          {% if users and users != 'unknown' and users != 'unavailable' %}
+            {% set parsed = users | from_json | default([]) %}
+            {% set names = parsed | map(attribute='user_name') | list %}
+            {{ names | join(', ') if names else 'No one present' }}
+          {% else %}
+            No one present
+          {% endif %}
+        attributes:
+          users: >
+            {% set users = states('input_text.presence_checked_in_users') %}
+            {% if users and users != 'unknown' and users != 'unavailable' %}
+              {{ users | from_json | default([]) }}
+            {% else %}
+              []
+            {% endif %}
+          user_ids: >
+            {% set users = states('input_text.presence_checked_in_users') %}
+            {% if users and users != 'unknown' and users != 'unavailable' %}
+              {% set parsed = users | from_json | default([]) %}
+              {{ parsed | map(attribute='user_id') | list }}
+            {% else %}
+              []
+            {% endif %}
+          user_names: >
+            {% set users = states('input_text.presence_checked_in_users') %}
+            {% if users and users != 'unknown' and users != 'unavailable' %}
+              {% set parsed = users | from_json | default([]) %}
+              {{ parsed | map(attribute='user_name') | list }}
+            {% else %}
+              []
+            {% endif %}
+        icon: mdi:account-multiple
+
+      # Legacy sensor for backward compatibility with old input_boolean system
+      - name: "Staff Currently Present Legacy"
+        unique_id: staff_currently_present_legacy
         state: >
           {{ states.input_boolean
              | selectattr('entity_id', 'match', 'input_boolean.staff_.*_present')
@@ -77,11 +161,80 @@ template:
                | map('replace', ' - Present', '')
                | list }}
 
-# Automations for presence management
+# ============================================================================
+# AUTOMATIONS - Webhook handlers for StaffWeek backend
+# ============================================================================
 automation:
-  - id: presence_scan_in_webhook
-    alias: "Presence - Handle Scan In"
-    description: "Process scan-in events from QR/NFC"
+  # Handle check-in from StaffWeek backend
+  # Payload: { user_id, user_email, user_name, timestamp, source, room_id, token }
+  - id: presence_staffweek_checkin
+    alias: "Presence - StaffWeek Check-In"
+    description: "Process check-in events from StaffWeek backend"
+    trigger:
+      - platform: webhook
+        webhook_id: staffweek_checkin
+        local_only: false
+    condition:
+      # Validate the webhook token
+      - condition: template
+        value_template: "{{ trigger.json.token == states('input_text.ha_webhook_token') or trigger.json.token == state_attr('sensor.secrets', 'ha_webhook_token') }}"
+    action:
+      # Call the record_checkin script
+      - service: script.record_checkin
+        data:
+          user_id: "{{ trigger.json.user_id }}"
+          user_email: "{{ trigger.json.user_email }}"
+          user_name: "{{ trigger.json.user_name }}"
+          timestamp: "{{ trigger.json.timestamp }}"
+          source: "{{ trigger.json.source | default('webhook') }}"
+          room_id: "{{ trigger.json.room_id | default('main') }}"
+      # Fire an event for other automations to react to
+      - event: staffweek_user_checked_in
+        event_data:
+          user_id: "{{ trigger.json.user_id }}"
+          user_email: "{{ trigger.json.user_email }}"
+          user_name: "{{ trigger.json.user_name }}"
+          timestamp: "{{ trigger.json.timestamp }}"
+          source: "{{ trigger.json.source | default('webhook') }}"
+          room_id: "{{ trigger.json.room_id | default('main') }}"
+
+  # Handle check-out from StaffWeek backend
+  # Payload: { user_id, user_email, user_name, timestamp, source, room_id, token }
+  - id: presence_staffweek_checkout
+    alias: "Presence - StaffWeek Check-Out"
+    description: "Process check-out events from StaffWeek backend"
+    trigger:
+      - platform: webhook
+        webhook_id: staffweek_checkout
+        local_only: false
+    condition:
+      # Validate the webhook token
+      - condition: template
+        value_template: "{{ trigger.json.token == states('input_text.ha_webhook_token') or trigger.json.token == state_attr('sensor.secrets', 'ha_webhook_token') }}"
+    action:
+      # Call the record_checkout script
+      - service: script.record_checkout
+        data:
+          user_id: "{{ trigger.json.user_id }}"
+          user_email: "{{ trigger.json.user_email }}"
+          user_name: "{{ trigger.json.user_name }}"
+          timestamp: "{{ trigger.json.timestamp }}"
+          source: "{{ trigger.json.source | default('webhook') }}"
+          room_id: "{{ trigger.json.room_id | default('main') }}"
+      # Fire an event for other automations to react to
+      - event: staffweek_user_checked_out
+        event_data:
+          user_id: "{{ trigger.json.user_id }}"
+          user_email: "{{ trigger.json.user_email }}"
+          user_name: "{{ trigger.json.user_name }}"
+          timestamp: "{{ trigger.json.timestamp }}"
+          source: "{{ trigger.json.source | default('webhook') }}"
+          room_id: "{{ trigger.json.room_id | default('main') }}"
+
+  # LEGACY - Keep old webhook handlers for backward compatibility
+  - id: presence_scan_in_webhook_legacy
+    alias: "Presence - Handle Scan In (Legacy)"
+    description: "Process legacy scan-in events from QR/NFC"
     trigger:
       - platform: webhook
         webhook_id: staff_scan_in
@@ -101,9 +254,9 @@ automation:
           location: "{{ trigger.json.location | default('unknown') }}"
           method: "{{ trigger.json.method | default('qr') }}"
 
-  - id: presence_scan_out_webhook
-    alias: "Presence - Handle Scan Out"
-    description: "Process scan-out events from QR/NFC"
+  - id: presence_scan_out_webhook_legacy
+    alias: "Presence - Handle Scan Out (Legacy)"
+    description: "Process legacy scan-out events from QR/NFC"
     trigger:
       - platform: webhook
         webhook_id: staff_scan_out
@@ -118,10 +271,131 @@ automation:
           location: "{{ trigger.json.location | default('unknown') }}"
           method: "{{ trigger.json.method | default('qr') }}"
 
-# Scripts for presence operations
+# ============================================================================
+# SCRIPTS - Presence operations
+# ============================================================================
 script:
+  # Record a check-in event (new backend format)
+  record_checkin:
+    alias: "Record Check-In"
+    description: "Log a check-in event and update presence list"
+    fields:
+      user_id:
+        description: "User's unique identifier"
+        example: "user_123"
+        required: true
+      user_email:
+        description: "User's email address"
+        example: "alice@example.com"
+        required: true
+      user_name:
+        description: "User's display name"
+        example: "Alice Chen"
+        required: true
+      timestamp:
+        description: "Check-in timestamp (ISO format)"
+        example: "2024-01-15T09:30:00Z"
+        required: true
+      source:
+        description: "Check-in source (qr, nfc, manual, webhook)"
+        example: "qr"
+        required: false
+      room_id:
+        description: "Room/location identifier"
+        example: "main"
+        required: false
+    sequence:
+      # Update the checked-in users list
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.presence_checked_in_users
+        data:
+          value: >
+            {% set current = states('input_text.presence_checked_in_users') %}
+            {% set users = current | from_json | default([]) if current and current != 'unknown' else [] %}
+            {% set user_ids = users | map(attribute='user_id') | list %}
+            {% if user_id not in user_ids %}
+              {% set new_user = {
+                'user_id': user_id,
+                'user_email': user_email,
+                'user_name': user_name,
+                'timestamp': timestamp,
+                'source': source | default('webhook'),
+                'room_id': room_id | default('main')
+              } %}
+              {{ (users + [new_user]) | to_json }}
+            {% else %}
+              {{ users | to_json }}
+            {% endif %}
+      # Update last check-in display
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.presence_last_checkin
+        data:
+          value: "{{ user_name }} ({{ now().strftime('%H:%M') }})"
+      # Log to HA logbook
+      - service: logbook.log
+        data:
+          name: "Staff Check-In"
+          message: "{{ user_name }} ({{ user_email }}) checked in via {{ source | default('webhook') }}"
+          entity_id: sensor.staff_currently_present
+
+  # Record a check-out event (new backend format)
+  record_checkout:
+    alias: "Record Check-Out"
+    description: "Log a check-out event and update presence list"
+    fields:
+      user_id:
+        description: "User's unique identifier"
+        example: "user_123"
+        required: true
+      user_email:
+        description: "User's email address"
+        example: "alice@example.com"
+        required: true
+      user_name:
+        description: "User's display name"
+        example: "Alice Chen"
+        required: true
+      timestamp:
+        description: "Check-out timestamp (ISO format)"
+        example: "2024-01-15T17:30:00Z"
+        required: true
+      source:
+        description: "Check-out source (qr, nfc, manual, webhook)"
+        example: "qr"
+        required: false
+      room_id:
+        description: "Room/location identifier"
+        example: "main"
+        required: false
+    sequence:
+      # Remove user from the checked-in users list
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.presence_checked_in_users
+        data:
+          value: >
+            {% set current = states('input_text.presence_checked_in_users') %}
+            {% set users = current | from_json | default([]) if current and current != 'unknown' else [] %}
+            {% set filtered = users | rejectattr('user_id', 'eq', user_id) | list %}
+            {{ filtered | to_json }}
+      # Update last check-out display
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.presence_last_checkout
+        data:
+          value: "{{ user_name }} ({{ now().strftime('%H:%M') }})"
+      # Log to HA logbook
+      - service: logbook.log
+        data:
+          name: "Staff Check-Out"
+          message: "{{ user_name }} ({{ user_email }}) checked out via {{ source | default('webhook') }}"
+          entity_id: sensor.staff_currently_present
+
+  # LEGACY - Scan in staff (old format, kept for compatibility)
   scan_in_staff:
-    alias: "Scan In Staff Member"
+    alias: "Scan In Staff Member (Legacy)"
     fields:
       staff_id:
         description: "Staff member identifier (e.g., alice, bob)"
@@ -142,8 +416,9 @@ script:
         data:
           datetime: "{{ now().isoformat() }}"
 
+  # LEGACY - Scan out staff (old format, kept for compatibility)
   scan_out_staff:
-    alias: "Scan Out Staff Member"
+    alias: "Scan Out Staff Member (Legacy)"
     fields:
       staff_id:
         description: "Staff member identifier"
@@ -153,8 +428,9 @@ script:
         target:
           entity_id: "input_boolean.staff_{{ staff_id }}_present"
 
+  # LEGACY - Toggle staff presence
   toggle_staff_presence:
-    alias: "Toggle Staff Presence"
+    alias: "Toggle Staff Presence (Legacy)"
     fields:
       staff_id:
         description: "Staff member identifier"
@@ -163,3 +439,45 @@ script:
       - service: input_boolean.toggle
         target:
           entity_id: "input_boolean.staff_{{ staff_id }}_present"
+
+  # Utility: Clear all presence data
+  clear_all_presence:
+    alias: "Clear All Presence Data"
+    description: "Reset all presence tracking (use with caution)"
+    sequence:
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.presence_checked_in_users
+        data:
+          value: "[]"
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.presence_last_checkin
+        data:
+          value: ""
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.presence_last_checkout
+        data:
+          value: ""
+
+  # Utility: Check if user is present
+  is_user_present:
+    alias: "Check If User Is Present"
+    description: "Check if a specific user is currently checked in"
+    fields:
+      user_id:
+        description: "User's unique identifier"
+        example: "user_123"
+        required: true
+    sequence:
+      - variables:
+          is_present: >
+            {% set current = states('input_text.presence_checked_in_users') %}
+            {% set users = current | from_json | default([]) if current and current != 'unknown' else [] %}
+            {% set user_ids = users | map(attribute='user_id') | list %}
+            {{ user_id in user_ids }}
+      - event: user_presence_check_result
+        event_data:
+          user_id: "{{ user_id }}"
+          is_present: "{{ is_present }}"

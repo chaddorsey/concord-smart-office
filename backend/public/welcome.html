@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome - Concord Smart Office</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      overflow: hidden;
+    }
+    .screen {
+      text-align: center;
+      transition: opacity 0.5s ease;
+    }
+    .screen.hidden { opacity: 0; pointer-events: none; position: absolute; }
+    .idle-screen .logo {
+      font-size: 3rem;
+      font-weight: 200;
+      margin-bottom: 1rem;
+    }
+    .idle-screen .tagline {
+      font-size: 1.5rem;
+      opacity: 0.7;
+      margin-bottom: 3rem;
+    }
+    .idle-screen .time {
+      font-size: 6rem;
+      font-weight: 100;
+      margin-bottom: 1rem;
+    }
+    .idle-screen .date {
+      font-size: 1.5rem;
+      opacity: 0.6;
+    }
+    .idle-screen .stats {
+      position: fixed;
+      bottom: 3rem;
+      font-size: 1.25rem;
+      opacity: 0.5;
+    }
+    .welcome-screen {
+      animation: fadeIn 0.5s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .welcome-screen .checkmark {
+      font-size: 8rem;
+      margin-bottom: 2rem;
+      animation: popIn 0.5s ease;
+    }
+    @keyframes popIn {
+      0% { transform: scale(0); }
+      70% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+    .welcome-screen h1 {
+      font-size: 4rem;
+      font-weight: 300;
+      margin-bottom: 0.5rem;
+    }
+    .welcome-screen .message {
+      font-size: 1.5rem;
+      opacity: 0.8;
+    }
+    .welcome-screen .avatar {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 4rem;
+      font-weight: 600;
+      margin: 2rem auto;
+    }
+  </style>
+</head>
+<body>
+  <!-- Idle Screen -->
+  <div class="screen idle-screen" id="idle-screen">
+    <div class="logo">Concord</div>
+    <div class="tagline">Smart Office</div>
+    <div class="time" id="time">--:--</div>
+    <div class="date" id="date">---</div>
+    <div class="stats" id="stats">-- people in office</div>
+  </div>
+
+  <!-- Welcome Screen -->
+  <div class="screen welcome-screen hidden" id="welcome-screen">
+    <div class="checkmark">✓</div>
+    <div class="avatar" id="welcome-avatar">?</div>
+    <h1 id="welcome-name">Welcome!</h1>
+    <p class="message" id="welcome-message">Have a great day!</p>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+    let lastCheckins = {};
+    let welcomeTimeout = null;
+
+    // Get initials from name
+    function getInitials(name) {
+      return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    }
+
+    // Update clock and date
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('time').textContent =
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      document.getElementById('date').textContent =
+        now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Show welcome screen
+    function showWelcome(name, initials) {
+      if (welcomeTimeout) clearTimeout(welcomeTimeout);
+
+      document.getElementById('welcome-name').textContent = `Welcome, ${name}!`;
+      document.getElementById('welcome-avatar').textContent = initials;
+      document.getElementById('idle-screen').classList.add('hidden');
+      document.getElementById('welcome-screen').classList.remove('hidden');
+
+      welcomeTimeout = setTimeout(() => {
+        document.getElementById('welcome-screen').classList.add('hidden');
+        document.getElementById('idle-screen').classList.remove('hidden');
+      }, 10000);
+    }
+
+    // Check for new checkins
+    async function checkPresence() {
+      try {
+        const res = await fetch(`${API_BASE}/api/presence`);
+        const data = await res.json();
+        const present = Array.isArray(data) ? data.filter(p => p.status === 'in') : [];
+
+        // Update stats
+        document.getElementById('stats').textContent =
+          `${present.length} ${present.length === 1 ? 'person' : 'people'} in office`;
+
+        // Check for new checkins
+        for (const person of present) {
+          const checkinTime = person.checked_in_at;
+          const userId = person.user_id;
+
+          if (checkinTime && (!lastCheckins[userId] || lastCheckins[userId] !== checkinTime)) {
+            // New checkin detected
+            const timeDiff = Date.now() - new Date(checkinTime).getTime();
+            if (timeDiff < 30000) { // Within last 30 seconds
+              const name = person.user_name || person.user_email?.split('@')[0] || 'Friend';
+              showWelcome(name, getInitials(name));
+            }
+            lastCheckins[userId] = checkinTime;
+          }
+        }
+
+        // Clean up departed users
+        const presentIds = new Set(present.map(p => p.user_id));
+        for (const id of Object.keys(lastCheckins)) {
+          if (!presentIds.has(id)) {
+            delete lastCheckins[id];
+          }
+        }
+      } catch (error) {
+        console.error('Presence error:', error);
+      }
+    }
+
+    // Initial load and intervals
+    checkPresence();
+    setInterval(checkPresence, 3000);
+  </script>
+</body>
+</html>

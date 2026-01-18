@@ -35,6 +35,22 @@
     "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
   },
 
+  "forwardPorts": [3001, 5173, 8123],
+  "portsAttributes": {
+    "3001": {
+      "label": "Backend API",
+      "onAutoForward": "notify"
+    },
+    "5173": {
+      "label": "PWA Dev Server",
+      "onAutoForward": "openBrowser"
+    },
+    "8123": {
+      "label": "Home Assistant",
+      "onAutoForward": "notify"
+    }
+  },
+
   "customizations": {
     "vscode": {
       "extensions": [

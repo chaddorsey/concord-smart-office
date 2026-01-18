@@ -1,5 +1,10 @@
 # Development overrides
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# For local development without Docker:
+#   cd backend && npm run dev
+#   cd pwa && npm run dev
+
 services:
   homeassistant:
     ports:
@@ -9,11 +14,33 @@ services:
     # Less aggressive restart in dev
     restart: "no"
 
-  frame-display:
+  backend:
     ports:
       - "3001:3001"
     environment:
+      - NODE_ENV=development
       - HA_URL=http://homeassistant:8123
+    volumes:
+      # Source mount removed - use 'docker compose build' after changes
+      # For live dev, run backend locally: cd backend && npm run dev
+      - backend-data:/app/data
+    restart: "no"
+
+  # PWA dev server (optional - run locally for hot reload)
+  pwa:
+    build:
+      context: ../pwa
+      dockerfile: Dockerfile.dev
+    container_name: concord-pwa-dev
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_BACKEND_URL=http://localhost:3001
+    volumes:
+      - ../pwa:/app
+      - /app/node_modules
+    profiles:
+      - pwa  # Only start with --profile pwa
     restart: "no"
 
   # Mock MQTT broker for testing integrations (optional)
@@ -32,3 +59,4 @@ services:
 volumes:
   mosquitto-data:
   mosquitto-log:
+  backend-data:

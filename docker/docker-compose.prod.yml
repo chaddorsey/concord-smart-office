@@ -1,4 +1,6 @@
 # Production overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
 services:
   homeassistant:
     restart: always
@@ -9,9 +11,37 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8123/api/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+
+  backend:
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nginx reverse proxy for SSL termination (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: concord-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ../pwa/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    profiles:
+      - proxy  # Only start with --profile proxy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"

@@ -131,8 +131,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    // Use local API in mock mode (frame-display server)
-    if (isMockMode) {
+    // Use backend API for queue management (works with or without HA)
+    // This handles both mock mode and demo login scenarios
+    {
       const fetchLocalState = async () => {
         try {
           const response = await fetch('http://localhost:3001/api/queue')
@@ -187,38 +188,11 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       const pollInterval = setInterval(fetchLocalState, 3000)
       return () => clearInterval(pollInterval)
     }
-
-    setLocalState(prev => ({ ...prev, isLoading: true }))
-
-    let unsubscribe: (() => void) | null = null
-
-    photoFrameService
-      .subscribeToChanges((state) => {
-        setHaState(state)
-        setLocalState(prev => ({ ...prev, isLoading: false, error: null }))
-      })
-      .then((unsub) => {
-        unsubscribe = unsub
-      })
-      .catch((err) => {
-        console.error('[PhotoFrame] Failed to subscribe:', err)
-        setLocalState(prev => ({
-          ...prev,
-          isLoading: false,
-          error: err instanceof Error ? err.message : 'Failed to connect'
-        }))
-      })
-
-    return () => {
-      if (unsubscribe) {
-        unsubscribe()
-      }
-    }
-  }, [isAuthenticated, isMockMode])
+  }, [isAuthenticated])
 
   // Fetch trash rate limit on mount and periodically
   useEffect(() => {
-    if (!currentUserId || !isMockMode) return
+    if (!currentUserId) return
 
     const fetchTrashLimit = async () => {
       try {
@@ -288,7 +262,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const setFramePlaylist = useCallback(async (frameId: string, playlist: string) => {
     if (!isCurrentUserPresent) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       setHaState(prev => ({
         ...prev,
         frames: prev.frames.map(f =>
@@ -309,7 +283,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const voteSkipFrame = useCallback(async (frameId: string) => {
     if (!isCurrentUserPresent) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       setHaState(prev => ({
         ...prev,
         frames: prev.frames.map(f =>
@@ -330,7 +304,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const nextFrameMedia = useCallback(async (frameId: string) => {
     if (!isCurrentUserPresent) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       setHaState(prev => ({
         ...prev,
         frames: prev.frames.map(f =>
@@ -351,7 +325,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const previousFrameMedia = useCallback(async (frameId: string) => {
     if (!isCurrentUserPresent) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       setHaState(prev => ({
         ...prev,
         frames: prev.frames.map(f =>
@@ -385,7 +359,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       return { ...prev, userVotes: newVotes }
     })
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       setHaState(prev => ({
         ...prev,
         mediaLibrary: prev.mediaLibrary.map(item => {
@@ -423,7 +397,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       return { ...prev, userVotes: newVotes }
     })
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       setHaState(prev => ({
         ...prev,
         mediaLibrary: prev.mediaLibrary.map(item => {
@@ -448,7 +422,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const addMediaToLibrary = useCallback(async (item: MediaItem) => {
     if (!isCurrentUserPresent) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       setHaState(prev => {
         // Check if item already exists
         if (prev.mediaLibrary.some(m => m.id === item.id)) {
@@ -490,7 +464,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       return { assigned: false, reason: 'User not scanned in' }
     }
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       // Mock mode: use local queue API
       try {
         const response = await fetch('http://localhost:3001/api/queue/add', {
@@ -542,7 +516,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const updateQueueSettings = useCallback(async (settings: Partial<QueueSettings>) => {
     if (!isCurrentUserPresent) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       try {
         await fetch('http://localhost:3001/api/queue/settings', {
           method: 'PUT',
@@ -567,7 +541,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const setFrameOrientation = useCallback(async (frameId: string, orientation: MediaOrientation) => {
     if (!isCurrentUserPresent) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       try {
         await fetch(`http://localhost:3001/api/queue/frame/${frameId}/orientation`, {
           method: 'PUT',
@@ -594,7 +568,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       return { distributed: 0, remaining: haState.holdingTank.length }
     }
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       // In mock mode, redistribute is handled by re-adding items
       // For now, just return current state - polling will update
       return { distributed: 0, remaining: haState.holdingTank.length }
@@ -612,7 +586,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const removeFromHoldingTank = useCallback(async (itemId: string) => {
     if (!isCurrentUserPresent) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       try {
         await fetch(`http://localhost:3001/api/queue/holding-tank/${itemId}`, {
           method: 'DELETE'
@@ -643,7 +617,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
 
     const newPosition = (frame.queuePosition + 1) % queue.length
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       try {
         await fetch(`http://localhost:3001/api/queue/frame/${frameId}`, {
           method: 'PUT',
@@ -680,7 +654,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     const existingVote = localState.queueItemVotes.get(itemId)
     const isTogglingOff = existingVote === vote
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       try {
         let response
         if (isTogglingOff) {
@@ -742,7 +716,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
       return { success: false, error: 'Not signed in' }
     }
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       try {
         const response = await fetch('http://localhost:3001/api/queue/trash', {
           method: 'POST',
@@ -786,7 +760,7 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
   const refreshTrashRateLimit = useCallback(async () => {
     if (!currentUserId) return
 
-    if (isMockMode) {
+    if (true) { // Always use backend API
       try {
         const response = await fetch(`http://localhost:3001/api/queue/trash-limit/${currentUserId}`)
         const result = await response.json()

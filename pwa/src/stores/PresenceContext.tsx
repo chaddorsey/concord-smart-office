@@ -1,247 +1,274 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { presenceService } from '../services/presenceService'
 import { MOCK_STAFF } from '../services/mockData'
 import { useAuth } from './AuthContext'
 import type { StaffMember } from '../services/types'
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+const POLL_INTERVAL = 5000 // 5 seconds
+
 interface PresenceState {
   staff: StaffMember[]
   presentCount: number
-  currentUserId: string | null
   isCurrentUserPresent: boolean
   isLoading: boolean
   error: string | null
+  currentUserId: string | null
 }
 
 interface PresenceContextValue extends PresenceState {
-  scanIn: (staffId: string) => Promise<void>
-  scanOut: (staffId: string) => Promise<void>
-  togglePresence: (staffId: string) => Promise<void>
-  setCurrentUser: (staffId: string | null) => void
+  checkIn: () => Promise<void>
+  checkOut: () => Promise<void>
+  togglePresence: () => Promise<void>
   refresh: () => Promise<void>
 }
 
 const PresenceContext = createContext<PresenceContextValue | null>(null)
 
-const STORAGE_KEY_CURRENT_USER = 'current_user_id'
-
-export function PresenceProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isMockMode } = useAuth()
-
-  const [state, setState] = useState<PresenceState>(() => {
-    const storedUserId = localStorage.getItem(STORAGE_KEY_CURRENT_USER)
-    return {
-      staff: [],
-      presentCount: 0,
-      currentUserId: storedUserId,
-      isCurrentUserPresent: false,
-      isLoading: false,
-      error: null
+// Helper to fetch with credentials
+async function fetchAPI(path: string, options?: RequestInit) {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers
     }
   })
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Request failed' }))
+    throw new Error(error.error || error.message || 'Request failed')
+  }
+  return res.json()
+}
 
-  // Subscribe to presence changes when authenticated
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setState(prev => ({
-        ...prev,
-        staff: [],
-        presentCount: 0,
-        isLoading: false
-      }))
-      return
-    }
+// Map backend presence to StaffMember
+function mapPresenceToStaff(presence: {
+  user_id: number | string
+  status: string
+  checked_in_at: string | null
+  user_name?: string
+  user_email?: string
+  avatar_url?: string
+}): StaffMember {
+  const name = presence.user_name || presence.user_email || 'Unknown'
+  const initials = name
+    .split(' ')
+    .map((n: string) => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
 
-    // Use mock data in mock mode
-    if (isMockMode) {
-      const mockStaff = MOCK_STAFF.map(s => ({ ...s }))
-      // Re-read currentUserId from localStorage (may have been set by enableMockMode)
-      const storedUserId = localStorage.getItem(STORAGE_KEY_CURRENT_USER)
-      setState(prev => {
-        const userId = storedUserId || prev.currentUserId
-        const currentUser = mockStaff.find(s => s.id === userId)
-        return {
-          ...prev,
-          currentUserId: userId,
-          staff: mockStaff,
-          presentCount: mockStaff.filter(s => s.isPresent).length,
-          isCurrentUserPresent: currentUser?.isPresent ?? false,
-          isLoading: false,
-          error: null
-        }
-      })
-      return
-    }
+  return {
+    id: String(presence.user_id),
+    name,
+    email: presence.user_email,
+    avatarUrl: presence.avatar_url,
+    entityId: '', // Not used with backend API
+    avatarInitials: initials,
+    isPresent: presence.status === 'in',
+    arrivedAt: presence.checked_in_at
+  }
+}
 
-    setState(prev => ({ ...prev, isLoading: true }))
+export function PresenceProvider({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isMockMode, user } = useAuth()
 
-    let unsubscribe: (() => void) | null = null
+  const currentUserId = user?.id ? String(user.id) : null
 
-    presenceService
-      .subscribeToPresenceChanges((staff) => {
-        setState(prev => {
-          const currentUser = staff.find(s => s.id === prev.currentUserId)
-          return {
-            ...prev,
-            staff,
-            presentCount: staff.filter(s => s.isPresent).length,
-            isCurrentUserPresent: currentUser?.isPresent ?? false,
-            isLoading: false,
-            error: null
-          }
-        })
-      })
-      .then((unsub) => {
-        unsubscribe = unsub
-      })
-      .catch((err) => {
-        console.error('[Presence] Failed to subscribe:', err)
-        setState(prev => ({
-          ...prev,
-          isLoading: false,
-          error: err instanceof Error ? err.message : 'Failed to load presence data'
-        }))
-      })
+  const [state, setState] = useState<PresenceState>({
+    staff: [],
+    presentCount: 0,
+    isCurrentUserPresent: false,
+    isLoading: false,
+    error: null,
+    currentUserId: null
+  })
 
-    return () => {
-      if (unsubscribe) {
-        unsubscribe()
-      }
-    }
-  }, [isAuthenticated, isMockMode])
-
-  const refresh = useCallback(async () => {
-    if (!isAuthenticated) return
-
-    // Mock mode doesn't need refresh
-    if (isMockMode) return
-
-    setState(prev => ({ ...prev, isLoading: true }))
+  // Fetch presence data from backend API
+  const fetchPresence = useCallback(async () => {
+    if (!isAuthenticated || isMockMode) return
 
     try {
-      const staff = await presenceService.getStaffPresence()
+      const data = await fetchAPI('/api/presence')
+      const presenceList = Array.isArray(data) ? data : (data.users || data.presence || [])
+      const staff = presenceList.map(mapPresenceToStaff)
+
       setState(prev => {
-        const currentUser = staff.find(s => s.id === prev.currentUserId)
+        const currentUser = staff.find(s => s.id === currentUserId)
         return {
           ...prev,
           staff,
           presentCount: staff.filter(s => s.isPresent).length,
           isCurrentUserPresent: currentUser?.isPresent ?? false,
           isLoading: false,
-          error: null
+          error: null,
+          currentUserId
         }
       })
     } catch (err) {
+      console.error('[Presence] Failed to fetch presence:', err)
       setState(prev => ({
         ...prev,
         isLoading: false,
-        error: err instanceof Error ? err.message : 'Failed to refresh'
+        error: err instanceof Error ? err.message : 'Failed to load presence data'
       }))
     }
-  }, [isAuthenticated, isMockMode])
+  }, [isAuthenticated, isMockMode, currentUserId])
 
-  const scanIn = useCallback(async (staffId: string) => {
+  // Initialize and poll for presence updates
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setState({
+        staff: [],
+        presentCount: 0,
+        isCurrentUserPresent: false,
+        isLoading: false,
+        error: null,
+        currentUserId: null
+      })
+      return
+    }
+
+    // Use mock data in mock mode
     if (isMockMode) {
-      // Mock scan in - update local state
+      const mockStaff = MOCK_STAFF.map(s => ({ ...s }))
+      const currentUser = mockStaff.find(s => s.id === currentUserId)
+      setState({
+        staff: mockStaff,
+        presentCount: mockStaff.filter(s => s.isPresent).length,
+        isCurrentUserPresent: currentUser?.isPresent ?? false,
+        isLoading: false,
+        error: null,
+        currentUserId
+      })
+      return
+    }
+
+    // Initial fetch
+    setState(prev => ({ ...prev, isLoading: true }))
+    fetchPresence()
+
+    // Set up polling
+    const intervalId = setInterval(fetchPresence, POLL_INTERVAL)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [isAuthenticated, isMockMode, currentUserId, fetchPresence])
+
+  const refresh = useCallback(async () => {
+    if (!isAuthenticated) return
+
+    // Mock mode uses local state, no need to refresh
+    if (isMockMode) return
+
+    setState(prev => ({ ...prev, isLoading: true }))
+    await fetchPresence()
+  }, [isAuthenticated, isMockMode, fetchPresence])
+
+  const checkIn = useCallback(async () => {
+    if (!currentUserId) {
+      throw new Error('No user logged in')
+    }
+
+    if (isMockMode) {
+      // Mock check in - update local state
       setState(prev => {
         const newStaff = prev.staff.map(s =>
-          s.id === staffId ? { ...s, isPresent: true, arrivedAt: new Date().toISOString() } : s
+          s.id === currentUserId ? { ...s, isPresent: true, arrivedAt: new Date().toISOString() } : s
         )
-        const currentUser = newStaff.find(s => s.id === prev.currentUserId)
         return {
           ...prev,
           staff: newStaff,
           presentCount: newStaff.filter(s => s.isPresent).length,
-          isCurrentUserPresent: currentUser?.isPresent ?? false
+          isCurrentUserPresent: true
         }
       })
       return
     }
+
     try {
-      await presenceService.scanIn(staffId)
+      await fetchAPI('/api/presence/checkin', { method: 'POST' })
+      // Refresh to get updated state
+      await fetchPresence()
     } catch (err) {
-      console.error('[Presence] Scan in failed:', err)
+      console.error('[Presence] Check in failed:', err)
       throw err
     }
-  }, [isMockMode])
+  }, [currentUserId, isMockMode, fetchPresence])
 
-  const scanOut = useCallback(async (staffId: string) => {
+  const checkOut = useCallback(async () => {
+    if (!currentUserId) {
+      throw new Error('No user logged in')
+    }
+
     if (isMockMode) {
-      // Mock scan out - update local state
+      // Mock check out - update local state
       setState(prev => {
         const newStaff = prev.staff.map(s =>
-          s.id === staffId ? { ...s, isPresent: false, arrivedAt: null } : s
+          s.id === currentUserId ? { ...s, isPresent: false, arrivedAt: null } : s
         )
-        const currentUser = newStaff.find(s => s.id === prev.currentUserId)
         return {
           ...prev,
           staff: newStaff,
           presentCount: newStaff.filter(s => s.isPresent).length,
-          isCurrentUserPresent: currentUser?.isPresent ?? false
+          isCurrentUserPresent: false
         }
       })
       return
     }
+
     try {
-      await presenceService.scanOut(staffId)
+      await fetchAPI('/api/presence/checkout', { method: 'POST' })
+      // Refresh to get updated state
+      await fetchPresence()
     } catch (err) {
-      console.error('[Presence] Scan out failed:', err)
+      console.error('[Presence] Check out failed:', err)
       throw err
     }
-  }, [isMockMode])
+  }, [currentUserId, isMockMode, fetchPresence])
 
-  const togglePresence = useCallback(async (staffId: string) => {
+  const togglePresence = useCallback(async () => {
+    if (!currentUserId) {
+      throw new Error('No user logged in')
+    }
+
     if (isMockMode) {
       // Mock toggle - update local state
       setState(prev => {
+        const currentUser = prev.staff.find(s => s.id === currentUserId)
+        const newIsPresent = !currentUser?.isPresent
         const newStaff = prev.staff.map(s =>
-          s.id === staffId
-            ? { ...s, isPresent: !s.isPresent, arrivedAt: !s.isPresent ? new Date().toISOString() : null }
+          s.id === currentUserId
+            ? { ...s, isPresent: newIsPresent, arrivedAt: newIsPresent ? new Date().toISOString() : null }
             : s
         )
-        const currentUser = newStaff.find(s => s.id === prev.currentUserId)
         return {
           ...prev,
           staff: newStaff,
           presentCount: newStaff.filter(s => s.isPresent).length,
-          isCurrentUserPresent: currentUser?.isPresent ?? false
+          isCurrentUserPresent: newIsPresent
         }
       })
       return
     }
-    try {
-      await presenceService.togglePresence(staffId)
-    } catch (err) {
-      console.error('[Presence] Toggle failed:', err)
-      throw err
-    }
-  }, [isMockMode])
 
-  const setCurrentUser = useCallback((staffId: string | null) => {
-    if (staffId) {
-      localStorage.setItem(STORAGE_KEY_CURRENT_USER, staffId)
+    // Determine current state and toggle
+    const currentUser = state.staff.find(s => s.id === currentUserId)
+    if (currentUser?.isPresent) {
+      await checkOut()
     } else {
-      localStorage.removeItem(STORAGE_KEY_CURRENT_USER)
+      await checkIn()
     }
-
-    setState(prev => {
-      const currentUser = prev.staff.find(s => s.id === staffId)
-      return {
-        ...prev,
-        currentUserId: staffId,
-        isCurrentUserPresent: currentUser?.isPresent ?? false
-      }
-    })
-  }, [])
+  }, [currentUserId, isMockMode, state.staff, checkIn, checkOut])
 
   return (
     <PresenceContext.Provider
       value={{
         ...state,
-        scanIn,
-        scanOut,
+        checkIn,
+        checkOut,
         togglePresence,
-        setCurrentUser,
         refresh
       }}
     >

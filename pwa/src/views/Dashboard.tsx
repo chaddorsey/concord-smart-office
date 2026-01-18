@@ -12,7 +12,7 @@ function formatArrivalTime(isoString: string | null): string {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { isAuthenticated, connectionStatus, disconnect } = useAuth()
+  const { isAuthenticated, connectionStatus, logout } = useAuth()
   const { staff, presentCount, isCurrentUserPresent, isLoading, error, refresh } = usePresence()
   const { playback, skipVoteCount, skipVotesNeeded } = useSpotify()
   const { oasis, leadingPattern, votesNeeded: sandVotesNeeded } = useSandTable()
@@ -41,9 +41,9 @@ export default function Dashboard() {
               {isCurrentUserPresent ? 'Scan Out' : 'Scan In'}
             </Link>
             <button
-              onClick={disconnect}
+              onClick={logout}
               className="p-2 hover:bg-blue-500 rounded-lg transition"
-              title="Disconnect"
+              title="Logout"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

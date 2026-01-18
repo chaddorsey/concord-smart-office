@@ -1,4 +1,6 @@
 # Base configuration - extend with dev or prod overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
 services:
   homeassistant:
     image: ghcr.io/home-assistant/home-assistant:stable
@@ -6,6 +8,8 @@ services:
     restart: unless-stopped
     volumes:
       - ha-config:/config
+      # Mount packages from host (uncomment for local dev with shared paths)
+      # - ../homeassistant/packages:/config/packages:ro
     environment:
       - TZ=America/New_York
     healthcheck:
@@ -15,22 +19,41 @@ services:
       retries: 3
       start_period: 60s
 
-  frame-display:
+  backend:
     build:
-      context: ../frame-display
+      context: ../backend
       dockerfile: Dockerfile
-    container_name: concord-frames
+    container_name: concord-backend
     restart: unless-stopped
+    volumes:
+      - backend-data:/app/data
     environment:
       - PORT=3001
+      - NODE_ENV=production
       - HA_URL=http://homeassistant:8123
+      - PWA_URL=${PWA_URL:-http://localhost:5173}
+      # OAuth - set in .env file
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_ALLOWED_DOMAIN=${GOOGLE_ALLOWED_DOMAIN:-}
+      - AUTH_CALLBACK_URL=${AUTH_CALLBACK_URL:-http://localhost:3001/api/auth/google/callback}
+      - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
+      # Home Assistant webhook
+      - HA_WEBHOOK_TOKEN=${HA_WEBHOOK_TOKEN:-}
+      # Kiosk
+      - TOKEN_EXPIRY_SECONDS=${TOKEN_EXPIRY_SECONDS:-60}
+      # External APIs
+      - PIXABAY_API_KEY=${PIXABAY_API_KEY:-}
     depends_on:
-      - homeassistant
+      homeassistant:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
 volumes:
   ha-config:
+  backend-data:

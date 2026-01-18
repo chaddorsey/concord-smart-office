@@ -49,6 +49,8 @@ export interface StaffMember {
   isPresent: boolean
   arrivedAt: string | null
   avatarInitials: string
+  email?: string
+  avatarUrl?: string
 }
 
 export interface PresenceState {

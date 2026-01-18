@@ -1,0 +1,25 @@
+# Dependencies - rebuild in container for correct platform
+node_modules
+
+# Data - mounted as volume
+data/
+*.db
+
+# Development files
+.env
+.env.local
+*.log
+npm-debug.log*
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Test files
+*.test.js
+__tests__
+coverage
