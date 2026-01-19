@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth, usePresence, useOasis } from '../stores'
-import type { Pattern, PatternSubmission, LedSubmission } from '../stores'
+import type { Pattern, PatternSubmission } from '../stores'
 import BottomNav from '../components/BottomNav'
 
 export default function SandTable() {
@@ -13,13 +13,9 @@ export default function SandTable() {
     patternQueue,
     patternFavorites,
     nativeQueue,
-    ledEffects,
-    ledQueue,
-    status,
     haStatus,
     drawingProgress,
     patternTrashRateLimit,
-    ledTrashRateLimit,
     isLoading,
     error,
     canControl,
@@ -28,10 +24,7 @@ export default function SandTable() {
     trashPattern,
     addPatternFavorite,
     removePatternFavorite,
-    submitLed,
-    voteLed,
-    trashLed,
-    setLedChangeInterval,
+    setLedEffectNow,
     refresh
   } = useOasis()
 
@@ -40,12 +33,85 @@ export default function SandTable() {
   const [patternSearchQuery, setPatternSearchQuery] = useState('')
   const [trashWarning, setTrashWarning] = useState<string | null>(null)
 
-  // LED submission form
+  // LED control state
   const [selectedEffect, setSelectedEffect] = useState<string>('')
-  const [selectedColor, setSelectedColor] = useState('#ff6b6b')
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedColor, setSelectedColor] = useState<string | null>(null) // null means custom picker is selected
+  const [customPickerColor, setCustomPickerColor] = useState('#ffffff')
+  const [ledBrightness, setLedBrightness] = useState(128)
+  const [ledSettingsLoaded, setLedSettingsLoaded] = useState(false)
+  const [isApplyingLed, setIsApplyingLed] = useState(false)
   const [submitFeedback, setSubmitFeedback] = useState<string | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+
+  // Preset colors for comparison
+  const PRESET_COLORS = ['#ff0000', '#ff9500', '#ffeb00', '#00ff00', '#00d4ff', '#0066ff', '#9900ff']
+
+  // Load current LED settings from HA
+  useEffect(() => {
+    if (haStatus?.led && !ledSettingsLoaded) {
+      // Load effect
+      if (haStatus.led.effect) {
+        setSelectedEffect(haStatus.led.effect)
+      }
+      // Load brightness
+      if (typeof haStatus.led.brightness === 'number') {
+        setLedBrightness(haStatus.led.brightness)
+      }
+      // Load color - always set picker to current color, and check if it matches a preset
+      if (haStatus.led.color) {
+        const [r, g, b] = haStatus.led.color
+        const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+        // Always set the picker to show current color
+        setCustomPickerColor(hexColor)
+        // Check if it matches a preset
+        const matchingPreset = PRESET_COLORS.find(c => c.toLowerCase() === hexColor.toLowerCase())
+        if (matchingPreset) {
+          setSelectedColor(matchingPreset)
+        } else {
+          setSelectedColor(null) // Custom picker selected
+        }
+      }
+      setLedSettingsLoaded(true)
+    }
+  }, [haStatus?.led, ledSettingsLoaded])
+
+  // Helper to determine if a color is light (for pencil visibility)
+  const isLightColor = (hex: string) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    if (!result) return false
+    const r = parseInt(result[1], 16)
+    const g = parseInt(result[2], 16)
+    const b = parseInt(result[3], 16)
+    // Calculate perceived brightness
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000
+    return brightness > 180
+  }
+
+  // Helper to get current color as hex
+  const getCurrentColorHex = () => selectedColor || customPickerColor
+
+  // Helper to convert RGB array to hex
+  const rgbToHex = (rgb: number[]) =>
+    `#${rgb[0].toString(16).padStart(2, '0')}${rgb[1].toString(16).padStart(2, '0')}${rgb[2].toString(16).padStart(2, '0')}`
+
+  // Check if LED settings have changed from current HA state
+  const hasLedChanges = () => {
+    if (!haStatus?.led) return true // Allow changes if no status loaded
+
+    // Check effect
+    if (selectedEffect !== haStatus.led.effect) return true
+
+    // Check brightness (ensure integer comparison)
+    const haBrightness = typeof haStatus.led.brightness === 'number' ? Math.round(haStatus.led.brightness) : 128
+    if (Math.round(ledBrightness) !== haBrightness) return true
+
+    // Check color
+    const currentHex = getCurrentColorHex().toLowerCase()
+    const haHex = haStatus.led.color ? rgbToHex(haStatus.led.color).toLowerCase() : null
+    if (currentHex !== haHex) return true
+
+    return false
+  }
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -60,29 +126,12 @@ export default function SandTable() {
     return submission.votes[user.id] || 0
   }
 
-  // Get current user's vote for LED
-  const getLedVote = (submission: LedSubmission): number => {
-    if (!user) return 0
-    return submission.votes[user.id] || 0
-  }
-
   // Handle pattern voting
   const handlePatternVote = async (submissionId: number, currentVote: number, newVote: -1 | 1) => {
     if (!canControl) return
     const value = currentVote === newVote ? 0 : newVote
     try {
       await votePattern(submissionId, value as -1 | 0 | 1)
-    } catch (err) {
-      console.error('Failed to vote:', err)
-    }
-  }
-
-  // Handle LED voting
-  const handleLedVote = async (submissionId: number, currentVote: number, newVote: -1 | 1) => {
-    if (!canControl) return
-    const value = currentVote === newVote ? 0 : newVote
-    try {
-      await voteLed(submissionId, value as -1 | 0 | 1)
     } catch (err) {
       console.error('Failed to vote:', err)
     }
@@ -107,21 +156,59 @@ export default function SandTable() {
     }
   }
 
-  // Handle LED submission
-  const handleSubmitLed = async () => {
-    if (!canControl || !selectedEffect) return
-    setIsSubmitting(true)
+  // Handle LED apply - immediately sets the LED effect
+  const handleApplyLed = async () => {
+    if (!selectedEffect) return
+    setIsApplyingLed(true)
     try {
-      const effect = ledEffects.find(e => e.id === selectedEffect)
-      await submitLed(
-        selectedEffect,
-        effect?.supportsColor ? selectedColor : undefined
-      )
-      setSelectedEffect('')
+      // Convert hex color to RGB
+      const hexToRgb = (hex: string): [number, number, number] => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+        return result
+          ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
+          : [255, 255, 255]
+      }
+
+      const colorToApply = selectedColor || customPickerColor
+      await setLedEffectNow(selectedEffect, hexToRgb(colorToApply), ledBrightness)
+      setSubmitFeedback('LED updated!')
+      // Reset loaded flag so we reload from HA when it updates
+      setLedSettingsLoaded(false)
+      setTimeout(() => setSubmitFeedback(null), 2000)
     } catch (err) {
-      console.error('Failed to submit LED:', err)
+      console.error('Failed to apply LED:', err)
+      setSubmitFeedback(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      setTimeout(() => setSubmitFeedback(null), 3000)
     } finally {
-      setIsSubmitting(false)
+      setIsApplyingLed(false)
+    }
+  }
+
+  // Reset LED controls to current HA values
+  const resetLedToCurrentValues = () => {
+    if (!haStatus?.led) return
+
+    // Reset effect
+    if (haStatus.led.effect) {
+      setSelectedEffect(haStatus.led.effect)
+    }
+
+    // Reset brightness
+    if (typeof haStatus.led.brightness === 'number') {
+      setLedBrightness(haStatus.led.brightness)
+    }
+
+    // Reset color
+    if (haStatus.led.color) {
+      const [r, g, b] = haStatus.led.color
+      const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+      setCustomPickerColor(hexColor)
+      const matchingPreset = PRESET_COLORS.find(c => c.toLowerCase() === hexColor.toLowerCase())
+      if (matchingPreset) {
+        setSelectedColor(matchingPreset)
+      } else {
+        setSelectedColor(null)
+      }
     }
   }
 
@@ -149,9 +236,6 @@ export default function SandTable() {
   // Check if pattern is a favorite
   const isPatternFavorite = (patternId: string) =>
     patternFavorites.some(f => f.pattern_id === patternId)
-
-  // Current LED from queue status (for "submitted by" info)
-  const currentLed = status?.currentLed
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -221,11 +305,6 @@ export default function SandTable() {
             }`}
           >
             LED
-            {ledQueue.length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 bg-purple-500 text-white text-xs rounded-full">
-                {ledQueue.length}
-              </span>
-            )}
           </button>
         </div>
 
@@ -587,287 +666,147 @@ export default function SandTable() {
           </>
         ) : (
           <>
-            {/* Current LED */}
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            {/* Current LED Status - tap to reset controls */}
+            <button
+              onClick={resetLedToCurrentValues}
+              className="w-full bg-white rounded-xl shadow-sm overflow-hidden text-left active:scale-[0.98] transition-transform"
+            >
               <div className="bg-gradient-to-br from-purple-500 to-indigo-600 p-6 text-white">
                 <div className="flex items-center gap-4">
                   {/* LED preview */}
                   <div
-                    className="w-16 h-16 rounded-full flex-shrink-0 animate-pulse"
+                    className="w-16 h-16 rounded-full flex-shrink-0"
                     style={{
-                      background: currentLed?.color_hex
-                        ? currentLed.color_hex
-                        : 'linear-gradient(135deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #8b00ff)'
+                      background: haStatus?.led?.color
+                        ? `rgb(${haStatus.led.color[0]}, ${haStatus.led.color[1]}, ${haStatus.led.color[2]})`
+                        : 'linear-gradient(135deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #8b00ff)',
+                      opacity: haStatus?.led?.state === 'on' ? 1 : 0.3
                     }}
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-white/70 text-sm">Current LED</p>
+                    <p className="text-white/70 text-sm">Current LED {hasLedChanges() && '· Tap to reset'}</p>
                     <h2 className="text-xl font-bold truncate">
-                      {currentLed?.effect_name || 'Rainbow'}
+                      {haStatus?.led?.effect || 'Off'}
                     </h2>
-                    {currentLed && (
-                      <p className="text-white/80 text-sm mt-1">
-                        by {currentLed.submitted_by_name}
-                      </p>
-                    )}
+                    <p className="text-white/80 text-sm mt-1">
+                      {haStatus?.led?.state === 'on'
+                        ? `Brightness: ${Math.round((haStatus.led.brightness / 255) * 100)}%`
+                        : 'LED is off'}
+                    </p>
                   </div>
                 </div>
-
-                {/* Next LED change countdown */}
-                {status && (
-                  <div className="mt-4 flex items-center justify-between text-sm">
-                    <span className="text-white/70">Changes in</span>
-                    <span className="font-medium">
-                      {status.timeUntilNextLedChange > 0
-                        ? `${status.timeUntilNextLedChange} min`
-                        : 'Soon'}
-                    </span>
-                  </div>
-                )}
               </div>
+            </button>
 
-              {/* LED Queue info */}
-              <div className="p-4 flex items-center justify-between text-sm">
-                <span className="text-gray-600">LED Queue</span>
-                <span className={`font-medium ${ledQueue.length > 0 ? 'text-purple-600' : 'text-gray-400'}`}>
-                  {ledQueue.length > 0 ? `${ledQueue.length} effects queued` : 'Queue empty'}
-                </span>
-              </div>
-            </div>
-
-            {/* LED Submission Form */}
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-gray-100">
-                <h2 className="font-semibold text-gray-900">Submit LED Effect</h2>
-              </div>
-              <div className="p-4 space-y-4">
-                {/* Effect Selection */}
-                <div className="grid grid-cols-2 gap-2">
-                  {ledEffects.map(effect => (
-                    <button
-                      key={effect.id}
-                      onClick={() => setSelectedEffect(effect.id)}
-                      disabled={!canControl}
-                      className={`p-3 rounded-lg text-left transition ${
-                        selectedEffect === effect.id
-                          ? 'bg-purple-100 border-2 border-purple-500 text-purple-700'
-                          : canControl
-                          ? 'bg-gray-50 border-2 border-transparent hover:border-gray-200'
-                          : 'bg-gray-50 border-2 border-transparent opacity-50'
-                      }`}
-                    >
-                      <span className="font-medium block text-sm">{effect.name}</span>
-                      {effect.supportsColor && (
-                        <span className="text-xs text-gray-500">+ color</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Color Picker (if effect supports color) */}
-                {selectedEffect && ledEffects.find(e => e.id === selectedEffect)?.supportsColor && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Color
-                    </label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="color"
-                        value={selectedColor}
-                        onChange={e => setSelectedColor(e.target.value)}
-                        className="w-12 h-12 rounded-lg border-0 cursor-pointer"
-                      />
-                      <div className="flex gap-2 flex-wrap">
-                        {['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7', '#dfe6e9', '#a29bfe', '#fd79a8'].map(color => (
-                          <button
-                            key={color}
-                            onClick={() => setSelectedColor(color)}
-                            className={`w-8 h-8 rounded-full transition ${
-                              selectedColor === color ? 'ring-2 ring-offset-2 ring-purple-500' : ''
-                            }`}
-                            style={{ backgroundColor: color }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Submit Button */}
-                <button
-                  onClick={handleSubmitLed}
-                  disabled={!canControl || !selectedEffect || isSubmitting}
-                  className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  {isSubmitting ? 'Submitting...' : 'Add to LED Queue'}
-                </button>
-              </div>
-            </div>
-
-            {/* LED Trash Rate Limit Warning */}
-            {ledTrashRateLimit.remaining === 0 && ledTrashRateLimit.resetsIn && (
-              <div className="text-xs text-center text-purple-600 bg-purple-50 rounded-lg py-2">
-                LED trash limit reached. Resets in {ledTrashRateLimit.resetsIn} min. Use downvote instead.
+            {/* Feedback Toast */}
+            {submitFeedback && (
+              <div className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                submitFeedback.includes('updated') ? 'bg-green-100 text-green-700' :
+                submitFeedback.includes('Failed') ? 'bg-red-100 text-red-700' :
+                'bg-amber-100 text-amber-700'
+              }`}>
+                {submitFeedback}
               </div>
             )}
 
-            {/* LED Queue */}
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                <h2 className="font-semibold text-gray-900">LED Queue</h2>
-                {ledTrashRateLimit.remaining < 3 && ledTrashRateLimit.remaining > 0 && (
-                  <span className="text-xs text-gray-500">
-                    {ledTrashRateLimit.remaining}/3 trash left
-                  </span>
-                )}
-              </div>
-
-              {ledQueue.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
-                  <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                  <p>No LED effects in queue</p>
-                  <p className="text-sm mt-1">Submit an effect above</p>
+            {/* LED Control Panel */}
+            <div className="bg-white rounded-xl shadow-sm overflow-hidden p-4 space-y-4">
+                {/* Effect Dropdown */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Effect
+                  </label>
+                  <select
+                    value={selectedEffect}
+                    onChange={(e) => setSelectedEffect(e.target.value)}
+                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-900 font-medium focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  >
+                    <option value="">Select an effect...</option>
+                    {(haStatus?.led?.availableEffects || ['Rainbow', 'Solid', 'Breathing', 'Chase']).map(effect => (
+                      <option key={effect} value={effect}>{effect}</option>
+                    ))}
+                  </select>
                 </div>
-              ) : (
-                <div className="divide-y divide-gray-100">
-                  {ledQueue.map((item, index) => {
-                    const netVotes = item.upvotes - item.downvotes
-                    const userVote = getLedVote(item)
 
-                    return (
-                      <div key={item.id} className="p-3 flex items-center gap-3">
-                        {/* Position */}
-                        <span className="w-5 text-center text-gray-400 text-sm font-medium flex-shrink-0">
-                          {index + 1}
-                        </span>
-
-                        {/* LED Color Preview */}
-                        <div
-                          className="w-10 h-10 rounded-full flex-shrink-0"
-                          style={{
-                            background: item.color_hex
-                              ? item.color_hex
-                              : 'linear-gradient(135deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #8b00ff)'
-                          }}
-                        />
-
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-gray-900 truncate text-sm">
-                            {item.effect_name}
-                          </p>
-                          <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
-                            <span>by {item.submitted_by_name}</span>
-                            {netVotes !== 0 && (
-                              <span className={`px-1.5 py-0.5 rounded ${
-                                netVotes > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                              }`}>
-                                {netVotes > 0 ? '+' : ''}{netVotes}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Voting & Trash */}
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          {/* Thumbs Up */}
-                          <button
-                            onClick={() => handleLedVote(item.id, userVote, 1)}
-                            disabled={!canControl}
-                            className={`p-1.5 rounded-lg transition ${
-                              userVote === 1
-                                ? 'bg-green-100 text-green-600'
-                                : canControl
-                                ? 'text-gray-400 hover:bg-green-50 hover:text-green-600'
-                                : 'text-gray-300'
-                            } disabled:opacity-50 disabled:cursor-not-allowed`}
-                            title="Upvote"
-                          >
-                            <svg className="w-5 h-5" fill={userVote === 1 ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                            </svg>
-                          </button>
-
-                          {/* Thumbs Down */}
-                          <button
-                            onClick={() => handleLedVote(item.id, userVote, -1)}
-                            disabled={!canControl}
-                            className={`p-1.5 rounded-lg transition ${
-                              userVote === -1
-                                ? 'bg-red-100 text-red-600'
-                                : canControl
-                                ? 'text-gray-400 hover:bg-red-50 hover:text-red-600'
-                                : 'text-gray-300'
-                            } disabled:opacity-50 disabled:cursor-not-allowed`}
-                            title="Downvote"
-                          >
-                            <svg className="w-5 h-5" fill={userVote === -1 ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                            </svg>
-                          </button>
-
-                          {/* Trash */}
-                          <button
-                            onClick={async () => {
-                              const result = await trashLed(item.id)
-                              if (result.warning || result.error) {
-                                setTrashWarning(result.warning || result.error || null)
-                                setTimeout(() => setTrashWarning(null), 5000)
-                              }
-                            }}
-                            disabled={!canControl || ledTrashRateLimit.remaining === 0}
-                            className={`p-1.5 rounded-lg transition ${
-                              ledTrashRateLimit.remaining === 0
-                                ? 'text-gray-300 cursor-not-allowed'
-                                : canControl
-                                ? 'text-gray-400 hover:bg-red-50 hover:text-red-600'
-                                : 'text-gray-300'
-                            } disabled:opacity-50`}
-                            title={ledTrashRateLimit.remaining === 0
-                              ? `Resets in ${ledTrashRateLimit.resetsIn || '?'} min`
-                              : `Remove immediately (${ledTrashRateLimit.remaining} left)`}
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
+                {/* Color Picker + Presets in one row */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Color
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className={`relative w-10 h-10 flex-shrink-0 rounded-lg border border-gray-300 ${selectedColor === null ? 'ring-2 ring-offset-1 ring-purple-500' : ''}`}>
+                      <input
+                        type="color"
+                        value={customPickerColor}
+                        onChange={e => {
+                          setCustomPickerColor(e.target.value)
+                          setSelectedColor(null) // Select custom picker
+                        }}
+                        className="w-10 h-10 rounded-lg border-0 cursor-pointer"
+                      />
+                      <svg
+                        className={`absolute inset-0 w-10 h-10 p-2.5 pointer-events-none drop-shadow-sm ${
+                          isLightColor(customPickerColor) ? 'text-gray-600' : 'text-white'
+                        }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </div>
+                    {PRESET_COLORS.map(color => (
+                      <button
+                        key={color}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          setSelectedColor(color)
+                        }}
+                        className={`w-8 h-8 rounded-full transition border flex-shrink-0 ${
+                          selectedColor === color ? 'ring-2 ring-offset-1 ring-purple-500' : 'border-gray-200'
+                        }`}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* LED Settings */}
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-gray-100">
-                <h2 className="font-semibold text-gray-900">LED Settings</h2>
-              </div>
-              <div className="p-4">
-                <label className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-gray-700">Change Interval</span>
-                  <span className="text-sm font-medium text-purple-600">
-                    {status?.ledChangeIntervalMinutes || 10} min
-                  </span>
-                </label>
-                <input
-                  type="range"
-                  min="1"
-                  max="60"
-                  step="1"
-                  value={status?.ledChangeIntervalMinutes || 10}
-                  onChange={(e) => setLedChangeInterval(parseInt(e.target.value, 10))}
-                  disabled={!canControl}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50"
-                />
-                <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>1 min</span>
-                  <span>60 min</span>
+                {/* Brightness Slider */}
+                <div>
+                  <label className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-700">Brightness</span>
+                    <span className="text-sm font-medium text-purple-600">
+                      {Math.round((ledBrightness / 255) * 100)}%
+                    </span>
+                  </label>
+                  <div className="py-3">
+                    <input
+                      type="range"
+                      min={0}
+                      max={255}
+                      step={1}
+                      value={ledBrightness}
+                      onInput={(e) => setLedBrightness(Number((e.target as HTMLInputElement).value))}
+                      onChange={(e) => setLedBrightness(Number(e.target.value))}
+                      className="w-full"
+                      style={{ touchAction: 'manipulation' }}
+                    />
+                  </div>
                 </div>
-              </div>
+
+                {/* Apply Button */}
+                <button
+                  onClick={handleApplyLed}
+                  disabled={!selectedEffect || isApplyingLed || !hasLedChanges()}
+                  className={`w-full py-3 rounded-lg font-medium transition ${
+                    hasLedChanges() && selectedEffect
+                      ? 'bg-purple-600 text-white hover:bg-purple-700'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  {isApplyingLed ? 'Applying...' : hasLedChanges() ? 'Apply Changes' : 'No Changes'}
+                </button>
             </div>
           </>
         )}
