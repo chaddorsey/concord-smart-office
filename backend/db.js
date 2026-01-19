@@ -265,6 +265,143 @@ function initDatabase() {
       INSERT OR IGNORE INTO scheduler_state (id, recent_taste_ids, recent_track_urls)
       VALUES (1, '[]', '[]')
     `);
+
+    // ========================================================================
+    // Oasis Sand Table Tables
+    // ========================================================================
+
+    // Available patterns (cached from Oasis browse_media)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS oasis_patterns (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        thumbnail_url TEXT,
+        duration_seconds INTEGER,
+        cached_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // Pattern submissions (queue)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS oasis_submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pattern_id TEXT NOT NULL,
+        pattern_name TEXT,
+        thumbnail_url TEXT,
+        submitted_by_user_id INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        status TEXT DEFAULT 'queued' CHECK(status IN ('queued', 'playing', 'played', 'failed')),
+        played_at TEXT,
+        FOREIGN KEY (submitted_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Votes on pattern submissions
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS oasis_votes (
+        submission_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        value INTEGER NOT NULL CHECK(value IN (-1, 0, 1)),
+        updated_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (submission_id, user_id),
+        FOREIGN KEY (submission_id) REFERENCES oasis_submissions(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Favorite patterns (for empty queue fallback)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS oasis_favorites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pattern_id TEXT NOT NULL UNIQUE,
+        pattern_name TEXT,
+        thumbnail_url TEXT,
+        added_by_user_id INTEGER,
+        added_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (added_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
+    // LED pattern submissions
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS oasis_led_submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        effect_name TEXT NOT NULL,
+        color_hex TEXT,
+        brightness INTEGER DEFAULT 128,
+        submitted_by_user_id INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        status TEXT DEFAULT 'queued' CHECK(status IN ('queued', 'active', 'played')),
+        activated_at TEXT,
+        FOREIGN KEY (submitted_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Votes on LED submissions
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS oasis_led_votes (
+        submission_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        value INTEGER NOT NULL CHECK(value IN (-1, 0, 1)),
+        updated_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (submission_id, user_id),
+        FOREIGN KEY (submission_id) REFERENCES oasis_led_submissions(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Default LED patterns (for empty queue)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS oasis_led_favorites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        effect_name TEXT NOT NULL,
+        color_hex TEXT,
+        brightness INTEGER DEFAULT 128,
+        added_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // Oasis scheduler state
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS oasis_scheduler_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        is_running INTEGER DEFAULT 0,
+        current_pattern_submission_id INTEGER,
+        current_led_submission_id INTEGER,
+        led_change_interval_minutes INTEGER DEFAULT 10,
+        last_led_change_at TEXT,
+        last_poll_at TEXT,
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (current_pattern_submission_id) REFERENCES oasis_submissions(id) ON DELETE SET NULL,
+        FOREIGN KEY (current_led_submission_id) REFERENCES oasis_led_submissions(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Oasis indexes
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_oasis_submissions_status ON oasis_submissions(status);
+      CREATE INDEX IF NOT EXISTS idx_oasis_submissions_created_at ON oasis_submissions(created_at);
+      CREATE INDEX IF NOT EXISTS idx_oasis_votes_submission_id ON oasis_votes(submission_id);
+      CREATE INDEX IF NOT EXISTS idx_oasis_led_submissions_status ON oasis_led_submissions(status);
+      CREATE INDEX IF NOT EXISTS idx_oasis_led_votes_submission_id ON oasis_led_votes(submission_id);
+    `);
+
+    // Initialize oasis scheduler state if not exists
+    db.exec(`
+      INSERT OR IGNORE INTO oasis_scheduler_state (id, led_change_interval_minutes)
+      VALUES (1, 10)
+    `);
+
+    // Insert default LED favorites if empty
+    const ledFavCount = db.prepare('SELECT COUNT(*) as count FROM oasis_led_favorites').get();
+    if (ledFavCount.count === 0) {
+      const insertLedFav = db.prepare(`
+        INSERT INTO oasis_led_favorites (effect_name, color_hex, brightness) VALUES (?, ?, ?)
+      `);
+      insertLedFav.run('Rainbow', null, 128);
+      insertLedFav.run('Glitter', '#FF6600', 150);
+      insertLedFav.run('Confetti', null, 128);
+    }
   });
 
   try {
@@ -1451,6 +1588,417 @@ function addRecentTrack(trackUrl) {
 }
 
 // ============================================================================
+// Oasis Sand Table - Pattern Queue
+// ============================================================================
+
+/**
+ * Cache pattern from Oasis browse_media
+ */
+function cacheOasisPattern(pattern) {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO oasis_patterns (id, name, thumbnail_url, duration_seconds, cached_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+  `);
+  stmt.run(pattern.id, pattern.name, pattern.thumbnailUrl || null, pattern.durationSeconds || null);
+}
+
+/**
+ * Get cached patterns
+ */
+function getOasisPatterns() {
+  return db.prepare('SELECT * FROM oasis_patterns ORDER BY name').all();
+}
+
+/**
+ * Submit a pattern to the queue
+ */
+function createOasisSubmission({ patternId, patternName, thumbnailUrl, submittedByUserId }) {
+  const stmt = db.prepare(`
+    INSERT INTO oasis_submissions (pattern_id, pattern_name, thumbnail_url, submitted_by_user_id)
+    VALUES (?, ?, ?, ?)
+  `);
+  const result = stmt.run(patternId, patternName, thumbnailUrl, submittedByUserId);
+  return getOasisSubmissionById(result.lastInsertRowid);
+}
+
+/**
+ * Get submission by ID with votes
+ */
+function getOasisSubmissionById(submissionId) {
+  const submission = db.prepare(`
+    SELECT s.*, u.name as submitted_by_name, u.email as submitted_by_email
+    FROM oasis_submissions s
+    JOIN users u ON s.submitted_by_user_id = u.id
+    WHERE s.id = ?
+  `).get(submissionId);
+
+  if (!submission) return null;
+
+  // Get votes
+  const votes = db.prepare(`
+    SELECT user_id, value FROM oasis_votes WHERE submission_id = ?
+  `).all(submissionId);
+
+  submission.votes = {};
+  submission.upvotes = 0;
+  submission.downvotes = 0;
+
+  for (const vote of votes) {
+    submission.votes[vote.user_id] = vote.value;
+    if (vote.value > 0) submission.upvotes++;
+    if (vote.value < 0) submission.downvotes++;
+  }
+
+  return submission;
+}
+
+/**
+ * Get queued pattern submissions ordered by votes
+ */
+function getOasisQueuedSubmissions() {
+  const submissions = db.prepare(`
+    SELECT s.*, u.name as submitted_by_name, u.email as submitted_by_email
+    FROM oasis_submissions s
+    JOIN users u ON s.submitted_by_user_id = u.id
+    WHERE s.status = 'queued'
+    ORDER BY s.created_at ASC
+  `).all();
+
+  // Get all votes for queued submissions
+  const submissionIds = submissions.map(s => s.id);
+  if (submissionIds.length === 0) return [];
+
+  const votes = db.prepare(`
+    SELECT submission_id, user_id, value FROM oasis_votes
+    WHERE submission_id IN (${submissionIds.map(() => '?').join(',')})
+  `).all(...submissionIds);
+
+  // Aggregate votes per submission
+  const voteMap = {};
+  for (const vote of votes) {
+    if (!voteMap[vote.submission_id]) {
+      voteMap[vote.submission_id] = { votes: {}, upvotes: 0, downvotes: 0 };
+    }
+    voteMap[vote.submission_id].votes[vote.user_id] = vote.value;
+    if (vote.value > 0) voteMap[vote.submission_id].upvotes++;
+    if (vote.value < 0) voteMap[vote.submission_id].downvotes++;
+  }
+
+  // Attach votes and calculate effective index
+  for (let i = 0; i < submissions.length; i++) {
+    const s = submissions[i];
+    const v = voteMap[s.id] || { votes: {}, upvotes: 0, downvotes: 0 };
+    s.votes = v.votes;
+    s.upvotes = v.upvotes;
+    s.downvotes = v.downvotes;
+    s.baseIndex = i;
+    // Effective index: shift by net votes (more upvotes = lower index = plays sooner)
+    const shift = Math.max(0, v.upvotes - 1) - Math.max(0, v.downvotes - 1);
+    s.effectiveIndex = i - shift;
+  }
+
+  // Sort by effective index
+  submissions.sort((a, b) => a.effectiveIndex - b.effectiveIndex);
+
+  return submissions;
+}
+
+/**
+ * Vote on pattern submission
+ */
+function voteOasisSubmission(submissionId, userId, value) {
+  if (value === 0) {
+    db.prepare('DELETE FROM oasis_votes WHERE submission_id = ? AND user_id = ?')
+      .run(submissionId, userId);
+  } else {
+    db.prepare(`
+      INSERT INTO oasis_votes (submission_id, user_id, value)
+      VALUES (?, ?, ?)
+      ON CONFLICT(submission_id, user_id) DO UPDATE SET value = ?, updated_at = datetime('now')
+    `).run(submissionId, userId, value, value);
+  }
+  return getOasisSubmissionById(submissionId);
+}
+
+/**
+ * Update submission status
+ */
+function updateOasisSubmissionStatus(submissionId, status) {
+  const updates = { status };
+  if (status === 'played') {
+    db.prepare(`
+      UPDATE oasis_submissions SET status = ?, played_at = datetime('now') WHERE id = ?
+    `).run(status, submissionId);
+  } else {
+    db.prepare(`UPDATE oasis_submissions SET status = ? WHERE id = ?`).run(status, submissionId);
+  }
+  return getOasisSubmissionById(submissionId);
+}
+
+/**
+ * Delete pattern submission (owner only)
+ */
+function deleteOasisSubmission(submissionId, userId) {
+  const stmt = db.prepare(`
+    DELETE FROM oasis_submissions
+    WHERE id = ? AND submitted_by_user_id = ? AND status = 'queued'
+  `);
+  return stmt.run(submissionId, userId).changes > 0;
+}
+
+/**
+ * Trash pattern submission (any user, for rate-limited trash)
+ */
+function trashOasisSubmission(submissionId) {
+  const stmt = db.prepare(`
+    DELETE FROM oasis_submissions WHERE id = ? AND status = 'queued'
+  `);
+  return stmt.run(submissionId).changes > 0;
+}
+
+// ============================================================================
+// Oasis Sand Table - LED Queue
+// ============================================================================
+
+/**
+ * Submit LED pattern to queue
+ */
+function createOasisLedSubmission({ effectName, colorHex, brightness, submittedByUserId }) {
+  const stmt = db.prepare(`
+    INSERT INTO oasis_led_submissions (effect_name, color_hex, brightness, submitted_by_user_id)
+    VALUES (?, ?, ?, ?)
+  `);
+  const result = stmt.run(effectName, colorHex || null, brightness || 128, submittedByUserId);
+  return getOasisLedSubmissionById(result.lastInsertRowid);
+}
+
+/**
+ * Get LED submission by ID with votes
+ */
+function getOasisLedSubmissionById(submissionId) {
+  const submission = db.prepare(`
+    SELECT s.*, u.name as submitted_by_name, u.email as submitted_by_email
+    FROM oasis_led_submissions s
+    JOIN users u ON s.submitted_by_user_id = u.id
+    WHERE s.id = ?
+  `).get(submissionId);
+
+  if (!submission) return null;
+
+  const votes = db.prepare(`
+    SELECT user_id, value FROM oasis_led_votes WHERE submission_id = ?
+  `).all(submissionId);
+
+  submission.votes = {};
+  submission.upvotes = 0;
+  submission.downvotes = 0;
+
+  for (const vote of votes) {
+    submission.votes[vote.user_id] = vote.value;
+    if (vote.value > 0) submission.upvotes++;
+    if (vote.value < 0) submission.downvotes++;
+  }
+
+  return submission;
+}
+
+/**
+ * Get queued LED submissions
+ */
+function getOasisLedQueuedSubmissions() {
+  const submissions = db.prepare(`
+    SELECT s.*, u.name as submitted_by_name, u.email as submitted_by_email
+    FROM oasis_led_submissions s
+    JOIN users u ON s.submitted_by_user_id = u.id
+    WHERE s.status = 'queued'
+    ORDER BY s.created_at ASC
+  `).all();
+
+  const submissionIds = submissions.map(s => s.id);
+  if (submissionIds.length === 0) return [];
+
+  const votes = db.prepare(`
+    SELECT submission_id, user_id, value FROM oasis_led_votes
+    WHERE submission_id IN (${submissionIds.map(() => '?').join(',')})
+  `).all(...submissionIds);
+
+  const voteMap = {};
+  for (const vote of votes) {
+    if (!voteMap[vote.submission_id]) {
+      voteMap[vote.submission_id] = { votes: {}, upvotes: 0, downvotes: 0 };
+    }
+    voteMap[vote.submission_id].votes[vote.user_id] = vote.value;
+    if (vote.value > 0) voteMap[vote.submission_id].upvotes++;
+    if (vote.value < 0) voteMap[vote.submission_id].downvotes++;
+  }
+
+  for (let i = 0; i < submissions.length; i++) {
+    const s = submissions[i];
+    const v = voteMap[s.id] || { votes: {}, upvotes: 0, downvotes: 0 };
+    s.votes = v.votes;
+    s.upvotes = v.upvotes;
+    s.downvotes = v.downvotes;
+    s.baseIndex = i;
+    const shift = Math.max(0, v.upvotes - 1) - Math.max(0, v.downvotes - 1);
+    s.effectiveIndex = i - shift;
+  }
+
+  submissions.sort((a, b) => a.effectiveIndex - b.effectiveIndex);
+  return submissions;
+}
+
+/**
+ * Vote on LED submission
+ */
+function voteOasisLedSubmission(submissionId, userId, value) {
+  if (value === 0) {
+    db.prepare('DELETE FROM oasis_led_votes WHERE submission_id = ? AND user_id = ?')
+      .run(submissionId, userId);
+  } else {
+    db.prepare(`
+      INSERT INTO oasis_led_votes (submission_id, user_id, value)
+      VALUES (?, ?, ?)
+      ON CONFLICT(submission_id, user_id) DO UPDATE SET value = ?, updated_at = datetime('now')
+    `).run(submissionId, userId, value, value);
+  }
+  return getOasisLedSubmissionById(submissionId);
+}
+
+/**
+ * Update LED submission status
+ */
+function updateOasisLedSubmissionStatus(submissionId, status) {
+  if (status === 'active') {
+    db.prepare(`
+      UPDATE oasis_led_submissions SET status = ?, activated_at = datetime('now') WHERE id = ?
+    `).run(status, submissionId);
+  } else {
+    db.prepare(`UPDATE oasis_led_submissions SET status = ? WHERE id = ?`).run(status, submissionId);
+  }
+  return getOasisLedSubmissionById(submissionId);
+}
+
+/**
+ * Trash LED submission
+ */
+function trashOasisLedSubmission(submissionId) {
+  const stmt = db.prepare(`
+    DELETE FROM oasis_led_submissions WHERE id = ? AND status = 'queued'
+  `);
+  return stmt.run(submissionId).changes > 0;
+}
+
+// ============================================================================
+// Oasis Sand Table - Favorites
+// ============================================================================
+
+/**
+ * Add pattern to favorites
+ */
+function addOasisFavorite({ patternId, patternName, thumbnailUrl, addedByUserId }) {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO oasis_favorites (pattern_id, pattern_name, thumbnail_url, added_by_user_id, added_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+  `);
+  stmt.run(patternId, patternName, thumbnailUrl, addedByUserId);
+}
+
+/**
+ * Remove pattern from favorites
+ */
+function removeOasisFavorite(patternId) {
+  db.prepare('DELETE FROM oasis_favorites WHERE pattern_id = ?').run(patternId);
+}
+
+/**
+ * Get pattern favorites
+ */
+function getOasisFavorites() {
+  return db.prepare('SELECT * FROM oasis_favorites ORDER BY added_at DESC').all();
+}
+
+/**
+ * Get random pattern favorite
+ */
+function getRandomOasisFavorite() {
+  return db.prepare('SELECT * FROM oasis_favorites ORDER BY RANDOM() LIMIT 1').get();
+}
+
+/**
+ * Add LED favorite
+ */
+function addOasisLedFavorite({ effectName, colorHex, brightness }) {
+  const stmt = db.prepare(`
+    INSERT INTO oasis_led_favorites (effect_name, color_hex, brightness)
+    VALUES (?, ?, ?)
+  `);
+  stmt.run(effectName, colorHex, brightness || 128);
+}
+
+/**
+ * Get LED favorites
+ */
+function getOasisLedFavorites() {
+  return db.prepare('SELECT * FROM oasis_led_favorites ORDER BY id').all();
+}
+
+/**
+ * Get random LED favorite
+ */
+function getRandomOasisLedFavorite() {
+  return db.prepare('SELECT * FROM oasis_led_favorites ORDER BY RANDOM() LIMIT 1').get();
+}
+
+// ============================================================================
+// Oasis Sand Table - Scheduler State
+// ============================================================================
+
+/**
+ * Get oasis scheduler state
+ */
+function getOasisSchedulerState() {
+  return db.prepare('SELECT * FROM oasis_scheduler_state WHERE id = 1').get();
+}
+
+/**
+ * Update oasis scheduler state
+ */
+function updateOasisSchedulerState(updates) {
+  const fields = [];
+  const values = [];
+
+  if ('is_running' in updates) {
+    fields.push('is_running = ?');
+    values.push(updates.is_running ? 1 : 0);
+  }
+  if ('current_pattern_submission_id' in updates) {
+    fields.push('current_pattern_submission_id = ?');
+    values.push(updates.current_pattern_submission_id);
+  }
+  if ('current_led_submission_id' in updates) {
+    fields.push('current_led_submission_id = ?');
+    values.push(updates.current_led_submission_id);
+  }
+  if ('led_change_interval_minutes' in updates) {
+    fields.push('led_change_interval_minutes = ?');
+    values.push(updates.led_change_interval_minutes);
+  }
+  if ('last_led_change_at' in updates) {
+    fields.push('last_led_change_at = ?');
+    values.push(updates.last_led_change_at);
+  }
+  if ('last_poll_at' in updates) {
+    fields.push('last_poll_at = ?');
+    values.push(updates.last_poll_at);
+  }
+
+  if (fields.length === 0) return;
+
+  fields.push("updated_at = datetime('now')");
+  db.prepare(`UPDATE oasis_scheduler_state SET ${fields.join(', ')} WHERE id = 1`).run(...values);
+}
+
+// ============================================================================
 // Database Utilities
 // ============================================================================
 
@@ -1563,5 +2111,37 @@ module.exports = {
   getSchedulerState,
   updateSchedulerState,
   addRecentTaste,
-  addRecentTrack
+  addRecentTrack,
+
+  // Oasis pattern queue
+  cacheOasisPattern,
+  getOasisPatterns,
+  createOasisSubmission,
+  getOasisSubmissionById,
+  getOasisQueuedSubmissions,
+  voteOasisSubmission,
+  updateOasisSubmissionStatus,
+  deleteOasisSubmission,
+  trashOasisSubmission,
+
+  // Oasis LED queue
+  createOasisLedSubmission,
+  getOasisLedSubmissionById,
+  getOasisLedQueuedSubmissions,
+  voteOasisLedSubmission,
+  updateOasisLedSubmissionStatus,
+  trashOasisLedSubmission,
+
+  // Oasis favorites
+  addOasisFavorite,
+  removeOasisFavorite,
+  getOasisFavorites,
+  getRandomOasisFavorite,
+  addOasisLedFavorite,
+  getOasisLedFavorites,
+  getRandomOasisLedFavorite,
+
+  // Oasis scheduler state
+  getOasisSchedulerState,
+  updateOasisSchedulerState
 };

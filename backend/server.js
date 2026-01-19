@@ -1553,6 +1553,254 @@ app.post('/api/music/scheduler/force-play', authService.requireAuth, async (req,
 });
 
 // ============================================================================
+// Oasis Sand Table API Routes
+// ============================================================================
+
+const oasisService = require('./services/oasisService');
+
+// Get available patterns
+app.get('/api/oasis/patterns', (req, res) => {
+  try {
+    const patterns = oasisService.getPatterns();
+    res.json(patterns);
+  } catch (error) {
+    console.error('[Oasis] Failed to get patterns:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get pattern queue
+app.get('/api/oasis/queue', (req, res) => {
+  try {
+    const queue = oasisService.getPatternQueue();
+    res.json(queue);
+  } catch (error) {
+    console.error('[Oasis] Failed to get queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Submit pattern to queue
+app.post('/api/oasis/submit', authService.requireAuth, (req, res) => {
+  try {
+    const { pattern_id, pattern_name, thumbnail_url } = req.body;
+
+    if (!pattern_id || !pattern_name) {
+      return res.status(400).json({ error: 'pattern_id and pattern_name are required' });
+    }
+
+    const submission = oasisService.submitPattern(
+      req.user.id,
+      pattern_id,
+      pattern_name,
+      thumbnail_url
+    );
+    res.status(201).json(submission);
+  } catch (error) {
+    console.error('[Oasis] Failed to submit pattern:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Vote on pattern submission
+app.post('/api/oasis/vote', authService.requireAuth, (req, res) => {
+  try {
+    const { submission_id, value } = req.body;
+
+    if (submission_id === undefined || value === undefined) {
+      return res.status(400).json({ error: 'submission_id and value are required' });
+    }
+
+    const submission = oasisService.votePattern(req.user.id, submission_id, value);
+    res.json(submission);
+  } catch (error) {
+    console.error('[Oasis] Failed to vote:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Delete own pattern submission
+app.delete('/api/oasis/submission/:id', authService.requireAuth, (req, res) => {
+  try {
+    const submissionId = parseInt(req.params.id, 10);
+    oasisService.removePatternSubmission(req.user.id, submissionId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Oasis] Failed to delete submission:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Trash any pattern submission (rate limited in frontend)
+app.post('/api/oasis/submission/:id/trash', authService.requireAuth, (req, res) => {
+  try {
+    const submissionId = parseInt(req.params.id, 10);
+    const success = oasisService.trashPattern(submissionId);
+    if (!success) {
+      return res.status(404).json({ error: 'Submission not found or already played' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Oasis] Failed to trash submission:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get LED effects
+app.get('/api/oasis/led/effects', (req, res) => {
+  try {
+    const effects = oasisService.getLedEffects();
+    res.json(effects);
+  } catch (error) {
+    console.error('[Oasis] Failed to get LED effects:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get LED queue
+app.get('/api/oasis/led/queue', (req, res) => {
+  try {
+    const queue = oasisService.getLedQueue();
+    res.json(queue);
+  } catch (error) {
+    console.error('[Oasis] Failed to get LED queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Submit LED pattern
+app.post('/api/oasis/led/submit', authService.requireAuth, (req, res) => {
+  try {
+    const { effect_name, color_hex, brightness } = req.body;
+
+    if (!effect_name) {
+      return res.status(400).json({ error: 'effect_name is required' });
+    }
+
+    const submission = oasisService.submitLed(
+      req.user.id,
+      effect_name,
+      color_hex,
+      brightness
+    );
+    res.status(201).json(submission);
+  } catch (error) {
+    console.error('[Oasis] Failed to submit LED:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Vote on LED submission
+app.post('/api/oasis/led/vote', authService.requireAuth, (req, res) => {
+  try {
+    const { submission_id, value } = req.body;
+
+    if (submission_id === undefined || value === undefined) {
+      return res.status(400).json({ error: 'submission_id and value are required' });
+    }
+
+    const submission = oasisService.voteLed(req.user.id, submission_id, value);
+    res.json(submission);
+  } catch (error) {
+    console.error('[Oasis] Failed to vote on LED:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Trash LED submission
+app.post('/api/oasis/led/:id/trash', authService.requireAuth, (req, res) => {
+  try {
+    const submissionId = parseInt(req.params.id, 10);
+    const success = oasisService.trashLed(submissionId);
+    if (!success) {
+      return res.status(404).json({ error: 'LED submission not found or already played' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Oasis] Failed to trash LED:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get Oasis status (now playing, queues, LED timer)
+app.get('/api/oasis/status', (req, res) => {
+  try {
+    const status = oasisService.getStatus();
+    res.json(status);
+  } catch (error) {
+    console.error('[Oasis] Failed to get status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get pattern favorites
+app.get('/api/oasis/favorites', (req, res) => {
+  try {
+    const favorites = oasisService.getPatternFavorites();
+    res.json(favorites);
+  } catch (error) {
+    console.error('[Oasis] Failed to get favorites:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add pattern to favorites
+app.post('/api/oasis/favorites', authService.requireAuth, (req, res) => {
+  try {
+    const { pattern_id, pattern_name, thumbnail_url } = req.body;
+
+    if (!pattern_id || !pattern_name) {
+      return res.status(400).json({ error: 'pattern_id and pattern_name are required' });
+    }
+
+    oasisService.addPatternFavorite(req.user.id, pattern_id, pattern_name, thumbnail_url);
+    res.status(201).json({ success: true });
+  } catch (error) {
+    console.error('[Oasis] Failed to add favorite:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Remove pattern from favorites
+app.delete('/api/oasis/favorites/:patternId', authService.requireAuth, (req, res) => {
+  try {
+    oasisService.removePatternFavorite(req.params.patternId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Oasis] Failed to remove favorite:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get LED favorites
+app.get('/api/oasis/led/favorites', (req, res) => {
+  try {
+    const favorites = oasisService.getLedFavorites();
+    res.json(favorites);
+  } catch (error) {
+    console.error('[Oasis] Failed to get LED favorites:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update LED change interval
+app.put('/api/oasis/settings/led-interval', authService.requireAuth, (req, res) => {
+  try {
+    const { minutes } = req.body;
+
+    if (!minutes || minutes < 1 || minutes > 60) {
+      return res.status(400).json({ error: 'minutes must be between 1 and 60' });
+    }
+
+    oasisService.setLedChangeInterval(minutes);
+    res.json({ success: true, ledChangeIntervalMinutes: minutes });
+  } catch (error) {
+    console.error('[Oasis] Failed to update LED interval:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // Health Check and Config Routes
 // ============================================================================
 
@@ -1741,6 +1989,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  Pixabay:  /api/pixabay/videos, /api/pixabay/categories');
   console.log('  Music:    /api/music/*, /api/me/tastes, /api/me/volume');
   console.log('  Scheduler: /api/music/scheduler/status, pause, resume, skip');
+  console.log('  Oasis:    /api/oasis/*, /api/oasis/led/*');
   console.log('='.repeat(60));
 
   // Start the music scheduler (async, will run in background)
