@@ -16,10 +16,9 @@ export default function Login() {
     console.log('[Login] Auth state:', { isAuthenticated, isLoading, returnUrl })
     if (isAuthenticated) {
       if (returnUrl) {
-        // Redirect to backend tap URL for kiosk check-in flow
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
-        console.log('[Login] Redirecting to return URL:', `${backendUrl}${returnUrl}`)
-        window.location.href = `${backendUrl}${returnUrl}`
+        // Redirect to backend tap URL for kiosk check-in flow (uses Vite proxy)
+        console.log('[Login] Redirecting to return URL:', returnUrl)
+        window.location.href = returnUrl
       } else {
         console.log('[Login] User is authenticated, redirecting to dashboard')
         navigate('/dashboard')
