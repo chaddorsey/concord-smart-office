@@ -96,11 +96,11 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       const staff = presenceList.map(mapPresenceToStaff)
 
       setState(prev => {
-        const currentUser = staff.find(s => s.id === currentUserId)
+        const currentUser = staff.find((s: StaffMember) => s.id === currentUserId)
         return {
           ...prev,
           staff,
-          presentCount: staff.filter(s => s.isPresent).length,
+          presentCount: staff.filter((s: StaffMember) => s.isPresent).length,
           isCurrentUserPresent: currentUser?.isPresent ?? false,
           isLoading: false,
           error: null,

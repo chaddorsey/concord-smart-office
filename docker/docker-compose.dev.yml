@@ -1,4 +1,4 @@
-# Development overrides
+# Concord Smart Office - Development Overrides
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 #
 # For local development without Docker:
@@ -6,28 +6,28 @@
 #   cd pwa && npm run dev
 
 services:
-  homeassistant:
+  nginx:
+    # In dev, you might run PWA directly with Vite for hot reload
+    # This nginx is optional - use --profile nginx to include it
+    profiles:
+      - nginx
     ports:
-      - "8123:8123"
-    environment:
-      - HA_ENV=development
-    # Less aggressive restart in dev
-    restart: "no"
+      - "8080:80"  # Use 8080 to avoid conflict with local services
 
   backend:
     ports:
       - "3001:3001"
     environment:
       - NODE_ENV=development
-      - HA_URL=http://homeassistant:8123
-    volumes:
-      # Source mount removed - use 'docker compose build' after changes
-      # For live dev, run backend locally: cd backend && npm run dev
-      - backend-data:/app/data
     restart: "no"
 
-  # PWA dev server (optional - run locally for hot reload)
-  pwa:
+  homeassistant:
+    ports:
+      - "8123:8123"
+    restart: "no"
+
+  # PWA dev server with hot reload
+  pwa-dev:
     build:
       context: ../pwa
       dockerfile: Dockerfile.dev
@@ -37,26 +37,17 @@ services:
     environment:
       - VITE_BACKEND_URL=http://localhost:3001
     volumes:
-      - ../pwa:/app
-      - /app/node_modules
+      - ../pwa/src:/app/src
+      - ../pwa/public:/app/public
+      - ../pwa/index.html:/app/index.html
     profiles:
-      - pwa  # Only start with --profile pwa
-    restart: "no"
+      - pwa
 
-  # Mock MQTT broker for testing integrations (optional)
+  # Mock MQTT broker for testing (optional)
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: concord-mqtt-dev
     ports:
       - "1883:1883"
-      - "9001:9001"
-    volumes:
-      - mosquitto-data:/mosquitto/data
-      - mosquitto-log:/mosquitto/log
     profiles:
-      - mqtt  # Only start with --profile mqtt
-
-volumes:
-  mosquitto-data:
-  mosquitto-log:
-  backend-data:
+      - mqtt

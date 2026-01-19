@@ -1,24 +1,29 @@
-# Base configuration - extend with dev or prod overrides
-# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Concord Smart Office - Base Docker Compose
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This base config defines all services. Use with dev or prod overlay.
 
 services:
-  homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:stable
-    container_name: concord-ha
+  # Nginx reverse proxy - serves PWA and routes to backend
+  nginx:
+    image: nginx:alpine
+    container_name: concord-nginx
     restart: unless-stopped
+    ports:
+      - "80:80"
     volumes:
-      - ha-config:/config
-      # Mount packages from host (uncomment for local dev with shared paths)
-      # - ../homeassistant/packages:/config/packages:ro
-    environment:
-      - TZ=America/New_York
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - pwa-dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8123/api/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 10s
 
+  # Node.js backend API
   backend:
     build:
       context: ../backend
@@ -31,14 +36,14 @@ services:
       - PORT=3001
       - NODE_ENV=production
       - HA_URL=http://homeassistant:8123
-      - PWA_URL=${PWA_URL:-http://localhost:5173}
-      # OAuth - set in .env file
+      - PWA_URL=${PWA_URL:-http://localhost}
+      # OAuth
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GOOGLE_ALLOWED_DOMAIN=${GOOGLE_ALLOWED_DOMAIN:-}
-      - AUTH_CALLBACK_URL=${AUTH_CALLBACK_URL:-http://localhost:3001/api/auth/google/callback}
+      - AUTH_CALLBACK_URL=${AUTH_CALLBACK_URL:-http://localhost/api/auth/google/callback}
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
-      # Home Assistant webhook
+      # Home Assistant
       - HA_WEBHOOK_TOKEN=${HA_WEBHOOK_TOKEN:-}
       # Kiosk
       - TOKEN_EXPIRY_SECONDS=${TOKEN_EXPIRY_SECONDS:-60}
@@ -54,6 +59,42 @@ services:
       retries: 3
       start_period: 10s
 
+  # Home Assistant
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: concord-ha
+    restart: unless-stopped
+    volumes:
+      - ha-config:/config
+      - ../homeassistant/packages:/config/packages:ro
+      - ../homeassistant/configuration.yaml:/config/configuration.yaml:ro
+    environment:
+      - TZ=${TZ:-America/New_York}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/api/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # PWA builder - builds React app and outputs to volume
+  pwa-builder:
+    build:
+      context: ../pwa
+      dockerfile: Dockerfile
+      target: builder
+    container_name: concord-pwa-builder
+    volumes:
+      - pwa-dist:/output
+    command: >
+      sh -c "cp -r /app/dist/* /output/ && echo 'PWA build copied to volume'"
+    profiles:
+      - build
+
 volumes:
   ha-config:
+    name: concord-ha-config
   backend-data:
+    name: concord-backend-data
+  pwa-dist:
+    name: concord-pwa-dist

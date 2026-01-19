@@ -1,0 +1,22 @@
+# Concord Smart Office PWA - Development
+# Hot reload enabled via volume mounts
+
+FROM node:20-slim
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy config files
+COPY vite.config.ts tsconfig*.json tailwind.config.js postcss.config.js ./
+
+# Source files are mounted as volumes for hot reload
+# See docker-compose.dev.yml
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

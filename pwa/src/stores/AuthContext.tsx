@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { checkMockMode, enableMockMode, disableMockMode, isMockModeEnabled } from '../services/mockData'
+import { enableMockMode, disableMockMode } from '../services/mockData'
 import type { ConnectionStatus } from '../services/types'
 
 // Use relative URLs to go through Vite's proxy (fixes third-party cookie issues)

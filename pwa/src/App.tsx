@@ -11,7 +11,7 @@ import PhotoFrames from './views/PhotoFrames'
 import BrowseVideos from './views/BrowseVideos'
 
 function App() {
-  const [haConnected, setHaConnected] = useState(false)
+  const [_haConnected, setHaConnected] = useState(false)
 
   // Initialize Home Assistant connection on startup
   useEffect(() => {
