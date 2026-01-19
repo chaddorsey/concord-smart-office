@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, PresenceProvider, SpotifyProvider, SandTableProvider, PhotoFrameProvider } from './stores'
+import { initializeHAConnection } from './services/haWebSocket'
 import Login from './views/Login'
 import Dashboard from './views/Dashboard'
 import ScanIn from './views/ScanIn'
@@ -9,6 +11,12 @@ import PhotoFrames from './views/PhotoFrames'
 import BrowseVideos from './views/BrowseVideos'
 
 function App() {
+  const [haConnected, setHaConnected] = useState(false)
+
+  // Initialize Home Assistant connection on startup
+  useEffect(() => {
+    initializeHAConnection().then(setHaConnected)
+  }, [])
   return (
     <AuthProvider>
       <PresenceProvider>

@@ -223,3 +223,24 @@ export class HAWebSocketService {
 
 // Singleton instance
 export const haWebSocket = new HAWebSocketService()
+
+// Auto-connect using environment variables
+export async function initializeHAConnection(): Promise<boolean> {
+  const haUrl = import.meta.env.VITE_HA_URL
+  const haToken = import.meta.env.VITE_HA_TOKEN
+
+  if (!haUrl || !haToken) {
+    console.log('[HA] No HA_URL or HA_TOKEN configured, skipping connection')
+    return false
+  }
+
+  try {
+    console.log('[HA] Connecting to Home Assistant...')
+    await haWebSocket.connect(haUrl, haToken)
+    console.log('[HA] Connected successfully')
+    return true
+  } catch (err) {
+    console.error('[HA] Failed to connect:', err)
+    return false
+  }
+}

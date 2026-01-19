@@ -65,6 +65,21 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
         secure: false
+      },
+      // Proxy Home Assistant API and WebSocket
+      '/ha-api': {
+        target: 'http://localhost:8123',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/ha-api/, '/api'),
+        ws: true
+      },
+      '/ha-ws': {
+        target: 'ws://localhost:8123',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/ha-ws/, '/api/websocket'),
+        ws: true
       }
     }
   }
