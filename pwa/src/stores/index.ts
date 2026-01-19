@@ -1,6 +1,7 @@
 export { AuthProvider, useAuth } from './AuthContext'
 export { PresenceProvider, usePresence } from './PresenceContext'
 export { SpotifyProvider, useSpotify } from './SpotifyContext'
+export { MusicProvider, useMusic, VOLUME_LABELS } from './MusicContext'
 export { SandTableProvider, useSandTable } from './SandTableContext'
 export { PhotoFrameProvider, usePhotoFrames } from './PhotoFrameContext'
 export type { PhotoFrame, MediaItem, PhotoFrameState, QueueItem, QueueSettings, MediaOrientation } from './PhotoFrameContext'

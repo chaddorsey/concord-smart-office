@@ -105,6 +105,166 @@ function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_kiosk_tokens_token_hash ON kiosk_tokens(token_hash);
       CREATE INDEX IF NOT EXISTS idx_kiosk_tokens_kiosk_id ON kiosk_tokens(kiosk_id);
     `);
+
+    // ========================================================================
+    // Music Control Tables
+    // ========================================================================
+
+    // Add volume_preference to users table if not exists
+    try {
+      db.exec(`ALTER TABLE users ADD COLUMN volume_preference TEXT DEFAULT 'medium'`);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+
+    // Taste definitions (chill, upbeat, focus, etc.)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS tastes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // User taste preferences (up to 3 per user)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_tastes (
+        user_id INTEGER NOT NULL,
+        taste_id TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (user_id, taste_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (taste_id) REFERENCES tastes(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Taste bucket tracks (Spotify track URLs per taste)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS taste_tracks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        taste_id TEXT NOT NULL,
+        track_url TEXT NOT NULL,
+        title TEXT,
+        artist TEXT,
+        added_by_user_id INTEGER,
+        added_at TEXT DEFAULT (datetime('now')),
+        last_played_at TEXT,
+        play_count INTEGER DEFAULT 0,
+        UNIQUE(taste_id, track_url),
+        FOREIGN KEY (taste_id) REFERENCES tastes(id) ON DELETE CASCADE,
+        FOREIGN KEY (added_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
+    // User-submitted tracks (priority queue)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS music_submissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        track_url TEXT NOT NULL,
+        title TEXT,
+        artist TEXT,
+        thumbnail TEXT,
+        submitted_by_user_id INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        status TEXT DEFAULT 'queued' CHECK(status IN ('queued', 'playing', 'played', 'failed')),
+        fail_reason TEXT,
+        played_at TEXT,
+        FOREIGN KEY (submitted_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Add thumbnail column to existing tables if not exists
+    try {
+      db.exec(`ALTER TABLE music_submissions ADD COLUMN thumbnail TEXT`);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+
+    // Votes on submissions
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS music_votes (
+        submission_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        value INTEGER NOT NULL CHECK(value IN (-1, 0, 1)),
+        updated_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (submission_id, user_id),
+        FOREIGN KEY (submission_id) REFERENCES music_submissions(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Play history
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS play_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        track_url TEXT NOT NULL,
+        title TEXT,
+        artist TEXT,
+        source TEXT NOT NULL CHECK(source IN ('submission', 'taste')),
+        taste_id TEXT,
+        submission_id INTEGER,
+        started_at TEXT DEFAULT (datetime('now')),
+        ended_at TEXT,
+        result TEXT DEFAULT 'playing' CHECK(result IN ('playing', 'completed', 'failed', 'skipped')),
+        fail_reason TEXT,
+        FOREIGN KEY (taste_id) REFERENCES tastes(id) ON DELETE SET NULL,
+        FOREIGN KEY (submission_id) REFERENCES music_submissions(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Presence context snapshot at play time
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS play_context (
+        play_history_id INTEGER PRIMARY KEY,
+        cafe_user_ids TEXT,
+        office_user_ids TEXT,
+        weights_json TEXT,
+        volume_level TEXT,
+        FOREIGN KEY (play_history_id) REFERENCES play_history(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Scheduler state (singleton row)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS scheduler_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        is_running INTEGER DEFAULT 0,
+        is_paused INTEGER DEFAULT 0,
+        current_play_id INTEGER,
+        recent_taste_ids TEXT,
+        recent_track_urls TEXT,
+        last_poll_at TEXT,
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (current_play_id) REFERENCES play_history(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Music control indexes
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_user_tastes_user_id ON user_tastes(user_id);
+      CREATE INDEX IF NOT EXISTS idx_taste_tracks_taste_id ON taste_tracks(taste_id);
+      CREATE INDEX IF NOT EXISTS idx_music_submissions_status ON music_submissions(status);
+      CREATE INDEX IF NOT EXISTS idx_music_submissions_created_at ON music_submissions(created_at);
+      CREATE INDEX IF NOT EXISTS idx_music_votes_submission_id ON music_votes(submission_id);
+      CREATE INDEX IF NOT EXISTS idx_play_history_started_at ON play_history(started_at);
+    `);
+
+    // Insert default tastes if not exist
+    const insertTaste = db.prepare(`
+      INSERT OR IGNORE INTO tastes (id, name, description) VALUES (?, ?, ?)
+    `);
+    insertTaste.run('default', 'Default', 'General mix for users without preferences');
+    insertTaste.run('chill', 'Chill', 'Relaxed, laid-back vibes');
+    insertTaste.run('upbeat', 'Upbeat', 'Energetic and positive');
+    insertTaste.run('focus', 'Focus', 'Concentration-friendly, minimal lyrics');
+    insertTaste.run('instrumental', 'Instrumental', 'No vocals, pure music');
+
+    // Initialize scheduler state if not exists
+    db.exec(`
+      INSERT OR IGNORE INTO scheduler_state (id, recent_taste_ids, recent_track_urls)
+      VALUES (1, '[]', '[]')
+    `);
   });
 
   try {
@@ -741,6 +901,556 @@ function deleteExpiredTokens(now) {
 }
 
 // ============================================================================
+// Music Control Operations
+// ============================================================================
+
+/**
+ * Normalize a Spotify track URL to the standard format
+ * Accepts: https://open.spotify.com/track/ID or spotify:track:ID
+ * Returns: spotify:track:ID (for Sonos playback)
+ */
+function normalizeTrackUrl(url) {
+  if (!url) return null;
+
+  // Already in spotify:track:ID format
+  if (url.startsWith('spotify:track:')) {
+    return url;
+  }
+
+  // Extract ID from https://open.spotify.com/track/ID?...
+  const match = url.match(/open\.spotify\.com\/track\/([a-zA-Z0-9]+)/);
+  if (match) {
+    return `spotify:track:${match[1]}`;
+  }
+
+  // Return as-is if we can't parse it
+  return url;
+}
+
+/**
+ * Get all available tastes
+ * @returns {Array} Array of taste objects
+ */
+function getAllTastes() {
+  const stmt = db.prepare('SELECT * FROM tastes ORDER BY name');
+  return stmt.all();
+}
+
+/**
+ * Get a taste by ID
+ * @param {string} tasteId - Taste ID
+ * @returns {Object|null} Taste object or null
+ */
+function getTasteById(tasteId) {
+  const stmt = db.prepare('SELECT * FROM tastes WHERE id = ?');
+  return stmt.get(tasteId) || null;
+}
+
+/**
+ * Get user's taste preferences
+ * @param {number} userId - User ID
+ * @returns {Array} Array of taste IDs
+ */
+function getUserTastes(userId) {
+  const stmt = db.prepare(`
+    SELECT taste_id FROM user_tastes
+    WHERE user_id = ?
+    ORDER BY created_at
+  `);
+  return stmt.all(userId).map(row => row.taste_id);
+}
+
+/**
+ * Set user's taste preferences (replaces existing)
+ * @param {number} userId - User ID
+ * @param {Array<string>} tasteIds - Array of taste IDs (max 3)
+ * @returns {Array} Updated taste IDs
+ */
+function setUserTastes(userId, tasteIds) {
+  // Limit to 3 tastes
+  const limitedTastes = tasteIds.slice(0, 3);
+
+  const transaction = db.transaction(() => {
+    // Delete existing tastes
+    db.prepare('DELETE FROM user_tastes WHERE user_id = ?').run(userId);
+
+    // Insert new tastes
+    const insert = db.prepare('INSERT INTO user_tastes (user_id, taste_id) VALUES (?, ?)');
+    for (const tasteId of limitedTastes) {
+      insert.run(userId, tasteId);
+    }
+  });
+
+  transaction();
+  return getUserTastes(userId);
+}
+
+/**
+ * Get user's volume preference
+ * @param {number} userId - User ID
+ * @returns {string} Volume preference ('super_quiet', 'soft', 'medium')
+ */
+function getUserVolume(userId) {
+  const stmt = db.prepare('SELECT volume_preference FROM users WHERE id = ?');
+  const row = stmt.get(userId);
+  return row?.volume_preference || 'medium';
+}
+
+/**
+ * Set user's volume preference
+ * @param {number} userId - User ID
+ * @param {string} volume - Volume level ('super_quiet', 'soft', 'medium')
+ * @returns {string} Updated volume preference
+ */
+function setUserVolume(userId, volume) {
+  const validVolumes = ['super_quiet', 'soft', 'medium'];
+  if (!validVolumes.includes(volume)) {
+    throw new Error(`Invalid volume. Must be one of: ${validVolumes.join(', ')}`);
+  }
+
+  const stmt = db.prepare('UPDATE users SET volume_preference = ? WHERE id = ?');
+  stmt.run(volume, userId);
+  return volume;
+}
+
+/**
+ * Get tracks for a taste bucket
+ * @param {string} tasteId - Taste ID
+ * @returns {Array} Array of track objects
+ */
+function getTasteTracks(tasteId) {
+  const stmt = db.prepare(`
+    SELECT * FROM taste_tracks
+    WHERE taste_id = ?
+    ORDER BY added_at DESC
+  `);
+  return stmt.all(tasteId);
+}
+
+/**
+ * Add a track to a taste bucket
+ * @param {Object} trackData - Track data
+ * @returns {Object} Created track record
+ */
+function addTasteTrack({ tasteId, trackUrl, title = null, artist = null, addedByUserId = null }) {
+  const normalizedUrl = normalizeTrackUrl(trackUrl);
+
+  const stmt = db.prepare(`
+    INSERT INTO taste_tracks (taste_id, track_url, title, artist, added_by_user_id)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  try {
+    const result = stmt.run(tasteId, normalizedUrl, title, artist, addedByUserId);
+    return {
+      id: result.lastInsertRowid,
+      taste_id: tasteId,
+      track_url: normalizedUrl,
+      title,
+      artist,
+      added_by_user_id: addedByUserId
+    };
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      throw new Error('Track already exists in this taste bucket');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Remove a track from a taste bucket
+ * @param {number} trackId - Track ID
+ * @returns {boolean} True if deleted
+ */
+function removeTasteTrack(trackId) {
+  const stmt = db.prepare('DELETE FROM taste_tracks WHERE id = ?');
+  const result = stmt.run(trackId);
+  return result.changes > 0;
+}
+
+/**
+ * Update track play stats
+ * @param {string} trackUrl - Track URL
+ * @param {string} tasteId - Taste ID
+ */
+function updateTrackPlayStats(trackUrl, tasteId) {
+  const stmt = db.prepare(`
+    UPDATE taste_tracks
+    SET last_played_at = datetime('now'), play_count = play_count + 1
+    WHERE track_url = ? AND taste_id = ?
+  `);
+  stmt.run(trackUrl, tasteId);
+}
+
+// ----------------------------------------------------------------------------
+// Music Submissions
+// ----------------------------------------------------------------------------
+
+/**
+ * Submit a track to the queue
+ * @param {Object} submissionData - Submission data
+ * @returns {Object} Created submission
+ */
+function createSubmission({ trackUrl, title = null, artist = null, thumbnail = null, submittedByUserId }) {
+  const normalizedUrl = normalizeTrackUrl(trackUrl);
+
+  const stmt = db.prepare(`
+    INSERT INTO music_submissions (track_url, title, artist, thumbnail, submitted_by_user_id)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  const result = stmt.run(normalizedUrl, title, artist, thumbnail, submittedByUserId);
+  return getSubmissionById(result.lastInsertRowid);
+}
+
+/**
+ * Get a submission by ID
+ * @param {number} submissionId - Submission ID
+ * @returns {Object|null} Submission with vote data
+ */
+function getSubmissionById(submissionId) {
+  const stmt = db.prepare(`
+    SELECT s.*, u.name as submitted_by_name, u.email as submitted_by_email
+    FROM music_submissions s
+    JOIN users u ON s.submitted_by_user_id = u.id
+    WHERE s.id = ?
+  `);
+
+  const submission = stmt.get(submissionId);
+  if (!submission) return null;
+
+  // Get votes
+  const votesStmt = db.prepare(`
+    SELECT user_id, value FROM music_votes WHERE submission_id = ?
+  `);
+  const votes = votesStmt.all(submissionId);
+
+  return {
+    ...submission,
+    votes: votes.reduce((acc, v) => ({ ...acc, [v.user_id]: v.value }), {}),
+    upvotes: votes.filter(v => v.value === 1).length,
+    downvotes: votes.filter(v => v.value === -1).length
+  };
+}
+
+/**
+ * Get all queued submissions ordered by priority
+ * @returns {Array} Ordered submissions
+ */
+function getQueuedSubmissions() {
+  const stmt = db.prepare(`
+    SELECT s.*, u.name as submitted_by_name, u.email as submitted_by_email
+    FROM music_submissions s
+    JOIN users u ON s.submitted_by_user_id = u.id
+    WHERE s.status = 'queued'
+    ORDER BY s.created_at ASC
+  `);
+
+  const submissions = stmt.all();
+
+  // Get votes for all submissions
+  const votesStmt = db.prepare(`
+    SELECT submission_id, user_id, value FROM music_votes
+    WHERE submission_id IN (${submissions.map(() => '?').join(',') || 'NULL'})
+  `);
+
+  const allVotes = submissions.length > 0
+    ? votesStmt.all(...submissions.map(s => s.id))
+    : [];
+
+  // Group votes by submission
+  const votesBySubmission = {};
+  for (const vote of allVotes) {
+    if (!votesBySubmission[vote.submission_id]) {
+      votesBySubmission[vote.submission_id] = [];
+    }
+    votesBySubmission[vote.submission_id].push(vote);
+  }
+
+  // Enrich submissions with vote data and compute ordering
+  const enriched = submissions.map((s, baseIndex) => {
+    const votes = votesBySubmission[s.id] || [];
+    const upvotes = votes.filter(v => v.value === 1).length;
+    const downvotes = votes.filter(v => v.value === -1).length;
+
+    // Voting algorithm: shift = max(0, ups-1) - max(0, downs-1)
+    const shift = Math.max(0, upvotes - 1) - Math.max(0, downvotes - 1);
+    const effectiveIndex = baseIndex - shift;
+
+    return {
+      ...s,
+      votes: votes.reduce((acc, v) => ({ ...acc, [v.user_id]: v.value }), {}),
+      upvotes,
+      downvotes,
+      effectiveIndex,
+      baseIndex
+    };
+  });
+
+  // Sort by effective index, then by created_at
+  enriched.sort((a, b) => {
+    if (a.effectiveIndex !== b.effectiveIndex) {
+      return a.effectiveIndex - b.effectiveIndex;
+    }
+    return new Date(a.created_at) - new Date(b.created_at);
+  });
+
+  return enriched;
+}
+
+/**
+ * Vote on a submission
+ * @param {number} submissionId - Submission ID
+ * @param {number} userId - User ID
+ * @param {number} value - Vote value (-1, 0, +1)
+ * @returns {Object} Updated submission
+ */
+function voteOnSubmission(submissionId, userId, value) {
+  if (![-1, 0, 1].includes(value)) {
+    throw new Error('Vote value must be -1, 0, or 1');
+  }
+
+  if (value === 0) {
+    // Remove vote
+    const stmt = db.prepare('DELETE FROM music_votes WHERE submission_id = ? AND user_id = ?');
+    stmt.run(submissionId, userId);
+  } else {
+    // Upsert vote
+    const stmt = db.prepare(`
+      INSERT INTO music_votes (submission_id, user_id, value)
+      VALUES (?, ?, ?)
+      ON CONFLICT(submission_id, user_id) DO UPDATE SET
+        value = excluded.value,
+        updated_at = datetime('now')
+    `);
+    stmt.run(submissionId, userId, value);
+  }
+
+  return getSubmissionById(submissionId);
+}
+
+/**
+ * Update submission status
+ * @param {number} submissionId - Submission ID
+ * @param {string} status - New status
+ * @param {string} [failReason] - Failure reason if status is 'failed'
+ * @returns {Object} Updated submission
+ */
+function updateSubmissionStatus(submissionId, status, failReason = null) {
+  const playedAt = status === 'played' ? new Date().toISOString() : null;
+
+  const stmt = db.prepare(`
+    UPDATE music_submissions
+    SET status = ?, fail_reason = ?, played_at = COALESCE(?, played_at)
+    WHERE id = ?
+  `);
+  stmt.run(status, failReason, playedAt, submissionId);
+
+  return getSubmissionById(submissionId);
+}
+
+/**
+ * Delete a submission (only allowed for submitter)
+ * @param {number} submissionId - Submission ID
+ * @param {number} userId - User ID (must be submitter)
+ * @returns {boolean} True if deleted
+ */
+function deleteSubmission(submissionId, userId) {
+  const stmt = db.prepare(`
+    DELETE FROM music_submissions
+    WHERE id = ? AND submitted_by_user_id = ? AND status = 'queued'
+  `);
+  const result = stmt.run(submissionId, userId);
+  return result.changes > 0;
+}
+
+/**
+ * Trash a submission (allowed for any user, for rate-limited trash feature)
+ * @param {number} submissionId - Submission ID
+ * @returns {boolean} True if deleted
+ */
+function trashSubmission(submissionId) {
+  const stmt = db.prepare(`
+    DELETE FROM music_submissions
+    WHERE id = ? AND status = 'queued'
+  `);
+  const result = stmt.run(submissionId);
+  return result.changes > 0;
+}
+
+// ----------------------------------------------------------------------------
+// Play History
+// ----------------------------------------------------------------------------
+
+/**
+ * Create a play history entry
+ * @param {Object} playData - Play data
+ * @returns {Object} Created play history entry
+ */
+function createPlayHistory({ trackUrl, title = null, artist = null, source, tasteId = null, submissionId = null }) {
+  const stmt = db.prepare(`
+    INSERT INTO play_history (track_url, title, artist, source, taste_id, submission_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  const result = stmt.run(trackUrl, title, artist, source, tasteId, submissionId);
+  return getPlayHistoryById(result.lastInsertRowid);
+}
+
+/**
+ * Get play history by ID
+ * @param {number} playId - Play history ID
+ * @returns {Object|null} Play history entry
+ */
+function getPlayHistoryById(playId) {
+  const stmt = db.prepare('SELECT * FROM play_history WHERE id = ?');
+  return stmt.get(playId) || null;
+}
+
+/**
+ * Update play history result
+ * @param {number} playId - Play history ID
+ * @param {string} result - Result ('completed', 'failed', 'skipped')
+ * @param {string} [failReason] - Failure reason
+ */
+function updatePlayHistoryResult(playId, result, failReason = null) {
+  const stmt = db.prepare(`
+    UPDATE play_history
+    SET result = ?, fail_reason = ?, ended_at = datetime('now')
+    WHERE id = ?
+  `);
+  stmt.run(result, failReason, playId);
+}
+
+/**
+ * Create a play context snapshot
+ * @param {Object} contextData - Context data
+ */
+function createPlayContext({ playHistoryId, cafeUserIds, officeUserIds, weightsJson, volumeLevel }) {
+  const stmt = db.prepare(`
+    INSERT INTO play_context (play_history_id, cafe_user_ids, office_user_ids, weights_json, volume_level)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    playHistoryId,
+    JSON.stringify(cafeUserIds),
+    JSON.stringify(officeUserIds),
+    JSON.stringify(weightsJson),
+    volumeLevel
+  );
+}
+
+/**
+ * Get recent play history
+ * @param {number} limit - Number of entries to return
+ * @returns {Array} Recent play history entries
+ */
+function getRecentPlayHistory(limit = 20) {
+  const stmt = db.prepare(`
+    SELECT ph.*, pc.cafe_user_ids, pc.office_user_ids, pc.weights_json, pc.volume_level
+    FROM play_history ph
+    LEFT JOIN play_context pc ON ph.id = pc.play_history_id
+    ORDER BY ph.started_at DESC
+    LIMIT ?
+  `);
+
+  return stmt.all(limit).map(row => ({
+    ...row,
+    cafe_user_ids: row.cafe_user_ids ? JSON.parse(row.cafe_user_ids) : [],
+    office_user_ids: row.office_user_ids ? JSON.parse(row.office_user_ids) : [],
+    weights: row.weights_json ? JSON.parse(row.weights_json) : {}
+  }));
+}
+
+// ----------------------------------------------------------------------------
+// Scheduler State
+// ----------------------------------------------------------------------------
+
+/**
+ * Get scheduler state
+ * @returns {Object} Scheduler state
+ */
+function getSchedulerState() {
+  const stmt = db.prepare('SELECT * FROM scheduler_state WHERE id = 1');
+  const state = stmt.get();
+
+  return {
+    ...state,
+    is_running: !!state.is_running,
+    is_paused: !!state.is_paused,
+    recent_taste_ids: JSON.parse(state.recent_taste_ids || '[]'),
+    recent_track_urls: JSON.parse(state.recent_track_urls || '[]')
+  };
+}
+
+/**
+ * Update scheduler state
+ * @param {Object} updates - Fields to update
+ */
+function updateSchedulerState(updates) {
+  const fields = [];
+  const values = [];
+
+  if ('is_running' in updates) {
+    fields.push('is_running = ?');
+    values.push(updates.is_running ? 1 : 0);
+  }
+  if ('is_paused' in updates) {
+    fields.push('is_paused = ?');
+    values.push(updates.is_paused ? 1 : 0);
+  }
+  if ('current_play_id' in updates) {
+    fields.push('current_play_id = ?');
+    values.push(updates.current_play_id);
+  }
+  if ('recent_taste_ids' in updates) {
+    fields.push('recent_taste_ids = ?');
+    values.push(JSON.stringify(updates.recent_taste_ids));
+  }
+  if ('recent_track_urls' in updates) {
+    fields.push('recent_track_urls = ?');
+    values.push(JSON.stringify(updates.recent_track_urls));
+  }
+  if ('last_poll_at' in updates) {
+    fields.push('last_poll_at = ?');
+    values.push(updates.last_poll_at);
+  }
+
+  if (fields.length === 0) return;
+
+  fields.push("updated_at = datetime('now')");
+
+  const stmt = db.prepare(`UPDATE scheduler_state SET ${fields.join(', ')} WHERE id = 1`);
+  stmt.run(...values);
+}
+
+/**
+ * Add a taste to recent tastes (maintains last 5)
+ * @param {string} tasteId - Taste ID
+ */
+function addRecentTaste(tasteId) {
+  const state = getSchedulerState();
+  const recent = state.recent_taste_ids;
+  recent.push(tasteId);
+  if (recent.length > 5) recent.shift();
+  updateSchedulerState({ recent_taste_ids: recent });
+}
+
+/**
+ * Add a track to recent tracks (maintains last 20)
+ * @param {string} trackUrl - Track URL
+ */
+function addRecentTrack(trackUrl) {
+  const state = getSchedulerState();
+  const recent = state.recent_track_urls;
+  recent.push(trackUrl);
+  if (recent.length > 20) recent.shift();
+  updateSchedulerState({ recent_track_urls: recent });
+}
+
+// ============================================================================
 // Database Utilities
 // ============================================================================
 
@@ -761,12 +1471,25 @@ function getDatabase() {
   return db;
 }
 
+/**
+ * Run a SQL statement with parameters
+ * Convenience wrapper for simple update/insert/delete operations
+ * @param {string} sql - SQL statement to run
+ * @param {Array} params - Parameters to bind
+ * @returns {Object} Result info with changes and lastInsertRowid
+ */
+function run(sql, params = []) {
+  const stmt = db.prepare(sql);
+  return stmt.run(...params);
+}
+
 // Export all functions
 module.exports = {
   // Initialization
   initDatabase,
   closeDatabase,
   getDatabase,
+  run,
 
   // User operations
   createUser,
@@ -805,5 +1528,40 @@ module.exports = {
   findToken,
   markTokenUsed,
   invalidateTokensForKiosk,
-  deleteExpiredTokens
+  deleteExpiredTokens,
+
+  // Music control operations
+  normalizeTrackUrl,
+  getAllTastes,
+  getTasteById,
+  getUserTastes,
+  setUserTastes,
+  getUserVolume,
+  setUserVolume,
+  getTasteTracks,
+  addTasteTrack,
+  removeTasteTrack,
+  updateTrackPlayStats,
+
+  // Music submissions
+  createSubmission,
+  getSubmissionById,
+  getQueuedSubmissions,
+  voteOnSubmission,
+  updateSubmissionStatus,
+  deleteSubmission,
+  trashSubmission,
+
+  // Play history
+  createPlayHistory,
+  getPlayHistoryById,
+  updatePlayHistoryResult,
+  createPlayContext,
+  getRecentPlayHistory,
+
+  // Scheduler state
+  getSchedulerState,
+  updateSchedulerState,
+  addRecentTaste,
+  addRecentTrack
 };

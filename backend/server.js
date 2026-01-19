@@ -1266,6 +1266,293 @@ app.get('/api/pixabay/categories', (req, res) => {
 });
 
 // ============================================================================
+// Music Control Routes
+// ============================================================================
+
+const musicService = require('./services/musicService');
+const schedulerService = require('./services/schedulerService');
+
+// Get all available tastes
+app.get('/api/music/tastes', (req, res) => {
+  try {
+    const tastes = musicService.getTastes();
+    res.json(tastes);
+  } catch (error) {
+    console.error('[Music] Failed to get tastes:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get current user's taste and volume preferences
+app.get('/api/me/tastes', authService.requireAuth, (req, res) => {
+  try {
+    const preferences = musicService.getUserPreferences(req.user.id);
+    res.json(preferences);
+  } catch (error) {
+    console.error('[Music] Failed to get user preferences:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set current user's taste preferences
+app.post('/api/me/tastes', authService.requireAuth, (req, res) => {
+  try {
+    const { tastes } = req.body;
+
+    if (!Array.isArray(tastes)) {
+      return res.status(400).json({ error: 'tastes must be an array' });
+    }
+
+    const updatedTastes = musicService.setUserTastes(req.user.id, tastes);
+    res.json({ tastes: updatedTastes });
+  } catch (error) {
+    console.error('[Music] Failed to set user tastes:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get current user's volume preference
+app.get('/api/me/volume', authService.requireAuth, (req, res) => {
+  try {
+    const volume = db.getUserVolume(req.user.id);
+    res.json({ volume });
+  } catch (error) {
+    console.error('[Music] Failed to get volume:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set current user's volume preference
+app.post('/api/me/volume', authService.requireAuth, (req, res) => {
+  try {
+    const { volume } = req.body;
+
+    if (!['super_quiet', 'soft', 'medium'].includes(volume)) {
+      return res.status(400).json({
+        error: 'volume must be one of: super_quiet, soft, medium'
+      });
+    }
+
+    musicService.setUserVolume(req.user.id, volume);
+    res.json({ volume });
+  } catch (error) {
+    console.error('[Music] Failed to set volume:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Preview track metadata from Spotify URL (no auth required)
+const spotifyMetadata = require('./services/spotifyMetadata');
+
+app.get('/api/music/preview', async (req, res) => {
+  try {
+    const { url } = req.query;
+
+    if (!url) {
+      return res.status(400).json({ error: 'url parameter is required' });
+    }
+
+    const metadata = await spotifyMetadata.fetchTrackMetadata(url);
+
+    if (!metadata) {
+      return res.status(404).json({ error: 'Could not fetch track metadata' });
+    }
+
+    res.json(metadata);
+  } catch (error) {
+    console.error('[Music] Failed to preview track:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Submit a track to the queue (auto-fetches metadata from Spotify)
+app.post('/api/music/submit', authService.requireAuth, async (req, res) => {
+  try {
+    const { track_url, title, artist } = req.body;
+
+    if (!track_url) {
+      return res.status(400).json({ error: 'track_url is required' });
+    }
+
+    const submission = await musicService.submitTrack(req.user.id, track_url, title, artist);
+    res.status(201).json(submission);
+  } catch (error) {
+    console.error('[Music] Failed to submit track:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get the submission queue
+app.get('/api/music/queue', (req, res) => {
+  try {
+    const queue = musicService.getQueue();
+    res.json(queue);
+  } catch (error) {
+    console.error('[Music] Failed to get queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Vote on a submission
+app.post('/api/music/vote', authService.requireAuth, (req, res) => {
+  try {
+    const { submission_id, value } = req.body;
+
+    if (submission_id === undefined) {
+      return res.status(400).json({ error: 'submission_id is required' });
+    }
+
+    if (![-1, 0, 1].includes(value)) {
+      return res.status(400).json({ error: 'value must be -1, 0, or 1' });
+    }
+
+    const submission = musicService.vote(req.user.id, submission_id, value);
+    res.json(submission);
+  } catch (error) {
+    console.error('[Music] Failed to vote:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Delete own submission
+app.delete('/api/music/submission/:id', authService.requireAuth, (req, res) => {
+  try {
+    const submissionId = parseInt(req.params.id, 10);
+    musicService.removeSubmission(req.user.id, submissionId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Music] Failed to delete submission:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Trash any submission (for rate-limited trash feature)
+app.post('/api/music/submission/:id/trash', authService.requireAuth, (req, res) => {
+  try {
+    const submissionId = parseInt(req.params.id, 10);
+    const success = db.trashSubmission(submissionId);
+    if (!success) {
+      return res.status(404).json({ error: 'Submission not found or already played' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Music] Failed to trash submission:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Get now playing
+app.get('/api/music/now-playing', (req, res) => {
+  try {
+    const nowPlaying = musicService.getNowPlaying();
+    res.json(nowPlaying || { playing: false });
+  } catch (error) {
+    console.error('[Music] Failed to get now playing:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get upcoming tracks
+app.get('/api/music/upcoming', (req, res) => {
+  try {
+    const count = parseInt(req.query.k || '10', 10);
+    const upcoming = musicService.getUpcoming(count);
+    res.json(upcoming);
+  } catch (error) {
+    console.error('[Music] Failed to get upcoming:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get play history
+app.get('/api/music/history', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit || '20', 10);
+    const history = musicService.getHistory(limit);
+    res.json(history);
+  } catch (error) {
+    console.error('[Music] Failed to get history:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get music stats
+app.get('/api/music/stats', (req, res) => {
+  try {
+    const stats = musicService.getStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('[Music] Failed to get stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Music Scheduler Control Routes
+// ============================================================================
+
+// Get scheduler status
+app.get('/api/music/scheduler/status', (req, res) => {
+  try {
+    const status = schedulerService.getStatus();
+    res.json(status);
+  } catch (error) {
+    console.error('[Scheduler] Failed to get status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Pause the scheduler
+app.post('/api/music/scheduler/pause', authService.requireAuth, (req, res) => {
+  try {
+    schedulerService.pause();
+    res.json({ success: true, message: 'Scheduler paused' });
+  } catch (error) {
+    console.error('[Scheduler] Failed to pause:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Resume the scheduler
+app.post('/api/music/scheduler/resume', authService.requireAuth, (req, res) => {
+  try {
+    schedulerService.resume();
+    res.json({ success: true, message: 'Scheduler resumed' });
+  } catch (error) {
+    console.error('[Scheduler] Failed to resume:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Skip current track
+app.post('/api/music/scheduler/skip', authService.requireAuth, async (req, res) => {
+  try {
+    await schedulerService.skipTrack();
+    res.json({ success: true, message: 'Track skipped' });
+  } catch (error) {
+    console.error('[Scheduler] Failed to skip:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Force play a specific track (admin/testing)
+app.post('/api/music/scheduler/force-play', authService.requireAuth, async (req, res) => {
+  try {
+    const { track_url } = req.body;
+
+    if (!track_url) {
+      return res.status(400).json({ error: 'track_url is required' });
+    }
+
+    const result = await schedulerService.forcePlay(track_url);
+    res.json(result);
+  } catch (error) {
+    console.error('[Scheduler] Failed to force play:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // Health Check and Config Routes
 // ============================================================================
 
@@ -1296,6 +1583,27 @@ app.get('/api/config', (req, res) => {
       presence: true,
       kiosk: true
     }
+  });
+});
+
+// ============================================================================
+// PWA App Routes (SPA fallback)
+// ============================================================================
+
+// Serve PWA for /app and /app/* routes
+app.get('/app', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/app/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Also serve PWA for common routes used by the SPA
+const pwaRoutes = ['/login', '/dashboard', '/scan', '/music', '/sand', '/photos', '/frames', '/browse-videos'];
+pwaRoutes.forEach(route => {
+  app.get(route, (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
   });
 });
 
@@ -1431,18 +1739,32 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  Kiosk:    /api/kiosk/token/:id, /api/kiosk/rotate/:id, /api/kiosk/validate');
   console.log('  Frames:   /frame/:id, /api/queue/*');
   console.log('  Pixabay:  /api/pixabay/videos, /api/pixabay/categories');
+  console.log('  Music:    /api/music/*, /api/me/tastes, /api/me/volume');
+  console.log('  Scheduler: /api/music/scheduler/status, pause, resume, skip');
   console.log('='.repeat(60));
+
+  // Start the music scheduler (async, will run in background)
+  if (process.env.HA_TOKEN) {
+    console.log('[Scheduler] Starting music scheduler...');
+    schedulerService.start().catch(err => {
+      console.error('[Scheduler] Failed to start:', err.message);
+    });
+  } else {
+    console.log('[Scheduler] Skipping scheduler start - HA_TOKEN not configured');
+  }
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully...');
+  schedulerService.stop();
   db.closeDatabase();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully...');
+  schedulerService.stop();
   db.closeDatabase();
   process.exit(0);
 });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider, PresenceProvider, SpotifyProvider, SandTableProvider, PhotoFrameProvider } from './stores'
+import { AuthProvider, PresenceProvider, SpotifyProvider, MusicProvider, SandTableProvider, PhotoFrameProvider } from './stores'
 import { initializeHAConnection } from './services/haWebSocket'
 import Login from './views/Login'
 import Dashboard from './views/Dashboard'
@@ -21,9 +21,10 @@ function App() {
     <AuthProvider>
       <PresenceProvider>
         <SpotifyProvider>
-          <SandTableProvider>
-            <PhotoFrameProvider>
-              <BrowserRouter>
+          <MusicProvider>
+            <SandTableProvider>
+              <PhotoFrameProvider>
+                <BrowserRouter>
                 <Routes>
                   <Route path="/" element={<Navigate to="/login" replace />} />
                   <Route path="/login" element={<Login />} />
@@ -36,8 +37,9 @@ function App() {
                   <Route path="/browse-videos" element={<BrowseVideos />} />
                 </Routes>
               </BrowserRouter>
-            </PhotoFrameProvider>
-          </SandTableProvider>
+              </PhotoFrameProvider>
+            </SandTableProvider>
+          </MusicProvider>
         </SpotifyProvider>
       </PresenceProvider>
     </AuthProvider>
