@@ -3,7 +3,8 @@ import { MOCK_STAFF } from '../services/mockData'
 import { useAuth } from './AuthContext'
 import type { StaffMember } from '../services/types'
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+// Use relative URLs to go through Vite's proxy (fixes third-party cookie issues)
+const BACKEND_URL = ''
 const POLL_INTERVAL = 5000 // 5 seconds
 
 interface PresenceState {
@@ -31,6 +32,7 @@ async function fetchAPI(path: string, options?: RequestInit) {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true',
       ...options?.headers
     }
   })

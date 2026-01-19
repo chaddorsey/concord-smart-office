@@ -59,10 +59,14 @@ function verifyOAuthState(storedState, returnedState) {
  * @returns {object} Cookie configuration options
  */
 function getSessionCookieOptions() {
+  // For cross-origin requests (e.g., different ngrok domains), we need sameSite: 'none'
+  // sameSite: 'none' requires secure: true
+  const isSecure = process.env.NODE_ENV === 'production' ||
+                   process.env.PWA_URL?.startsWith('https://');
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: isSecure,
+    sameSite: isSecure ? 'none' : 'lax',
     maxAge: SESSION_MAX_AGE_MS,
     path: '/'
   };

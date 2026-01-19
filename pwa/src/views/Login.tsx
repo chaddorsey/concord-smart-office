@@ -7,17 +7,25 @@ export default function Login() {
   const [searchParams] = useSearchParams()
   const { isAuthenticated, isLoading, loginWithGoogle, connectMock, error } = useAuth()
 
-  // Handle OAuth callback errors
+  // Handle OAuth callback errors and return URL for kiosk flow
   const authError = searchParams.get('error')
+  const returnUrl = searchParams.get('returnUrl')
 
   // Redirect if authenticated
   useEffect(() => {
-    console.log('[Login] Auth state:', { isAuthenticated, isLoading, connectionStatus: 'check useAuth' })
+    console.log('[Login] Auth state:', { isAuthenticated, isLoading, returnUrl })
     if (isAuthenticated) {
-      console.log('[Login] User is authenticated, redirecting to dashboard')
-      navigate('/dashboard')
+      if (returnUrl) {
+        // Redirect to backend tap URL for kiosk check-in flow
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+        console.log('[Login] Redirecting to return URL:', `${backendUrl}${returnUrl}`)
+        window.location.href = `${backendUrl}${returnUrl}`
+      } else {
+        console.log('[Login] User is authenticated, redirecting to dashboard')
+        navigate('/dashboard')
+      }
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, navigate, returnUrl])
 
   // Show loading while checking session
   if (isLoading) {

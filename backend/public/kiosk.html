@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Concord Smart Office - Check In</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -159,8 +159,9 @@
   </div>
 
   <script>
-    // Configuration
-    const KIOSK_ID = new URLSearchParams(window.location.search).get('id') || 'entry1';
+    // Configuration - extract kiosk ID from URL path /kiosk/:kioskId
+    const pathParts = window.location.pathname.split('/');
+    const KIOSK_ID = pathParts[pathParts.length - 1] || 'entry';
     const REFRESH_INTERVAL = 30000; // 30 seconds
     const API_BASE = window.location.origin;
 
@@ -179,7 +180,9 @@
     // Generate QR code
     async function refreshToken() {
       try {
-        const response = await fetch(`${API_BASE}/api/kiosk/token/${KIOSK_ID}`);
+        const response = await fetch(`${API_BASE}/api/kiosk/token/${KIOSK_ID}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
 
         if (!response.ok) {
           throw new Error('Failed to get token');
@@ -195,10 +198,13 @@
         // Clear and regenerate QR
         const qrContainer = document.getElementById('qrcode');
         qrContainer.innerHTML = '';
-        QRCode.toCanvas(qrContainer.appendChild(document.createElement('canvas')), qrUrl, {
+        new QRCode(qrContainer, {
+          text: qrUrl,
           width: 280,
-          margin: 0,
-          color: { dark: '#1a1a2e', light: '#ffffff' }
+          height: 280,
+          colorDark: '#1a1a2e',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
         });
 
         // Show backup code (last 6 chars of token)
@@ -211,7 +217,7 @@
       } catch (error) {
         console.error('Token refresh error:', error);
         document.getElementById('qrcode').innerHTML =
-          '<div class="error">Unable to connect. Retrying...</div>';
+          `<div class="error">Unable to connect. Retrying...<br><small>${error.message}</small></div>`;
       }
     }
 
@@ -226,7 +232,9 @@
     // Fetch presence count
     async function updatePresenceCount() {
       try {
-        const response = await fetch(`${API_BASE}/api/presence`);
+        const response = await fetch(`${API_BASE}/api/presence`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
         if (response.ok) {
           const data = await response.json();
           const count = Array.isArray(data) ? data.filter(p => p.status === 'in').length : 0;

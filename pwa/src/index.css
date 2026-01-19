@@ -17,7 +17,7 @@ body {
     transform: translateY(0);
   }
   50% {
-    transform: translateY(250px);
+    transform: translateY(270px);
   }
   100% {
     transform: translateY(0);
@@ -25,7 +25,7 @@ body {
 }
 
 .animate-scan {
-  animation: scan 2s ease-in-out infinite;
+  animation: scan 2.5s ease-in-out infinite;
 }
 
 /* Native QR Scanner mode - make everything transparent for camera to show through */
@@ -51,4 +51,21 @@ body.scanner-active header {
 
 body.scanner-active nav {
   display: none !important;
+}
+
+/* Ensure html5-qrcode video displays properly */
+#qr-scanner-container {
+  position: relative !important;
+}
+
+#qr-scanner-container video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 0.75rem;
+}
+
+#qr-scanner-container > div {
+  width: 100% !important;
+  height: 100% !important;
 }

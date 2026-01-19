@@ -9,12 +9,25 @@ import QRScanner from '../components/QRScanner'
 type ScanMode = 'qr' | 'nfc' | 'manual'
 
 // Parse location from QR code data
-function parseQRLocation(data: string): { locationId: string; locationName?: string } | null {
+function parseQRLocation(data: string): { locationId: string; locationName?: string; token?: string } | null {
   const trimmed = data.trim()
 
-  // Try URL format: https://example.com/checkin?loc=lobby
+  // Try URL format
   try {
     const url = new URL(trimmed)
+
+    // Kiosk format: /tap/{kioskId}?token=xxx
+    const tapMatch = url.pathname.match(/\/tap\/([^/]+)/)
+    if (tapMatch) {
+      const token = url.searchParams.get('token')
+      return {
+        locationId: tapMatch[1],
+        locationName: tapMatch[1].charAt(0).toUpperCase() + tapMatch[1].slice(1),
+        token: token || undefined
+      }
+    }
+
+    // Generic format: ?loc=lobby or ?location=lobby
     const loc = url.searchParams.get('loc') || url.searchParams.get('location') || url.searchParams.get('id')
     if (loc) return { locationId: loc }
 
@@ -141,7 +154,7 @@ export default function ScanIn() {
     : `Checked in at ${checkInResult?.locationName}!`
 
   return (
-    <div className={`min-h-screen pb-20 scan-page ${isScanning ? '' : 'bg-gray-50'}`}>
+    <div className="min-h-screen pb-20 scan-page bg-gray-50">
       {/* Header */}
       <header className="scan-header bg-blue-600 text-white px-4 py-4 shadow-lg">
         <div className="max-w-lg mx-auto flex items-center justify-between">
@@ -231,6 +244,40 @@ export default function ScanIn() {
           </div>
         )}
 
+        {/* Quick Check Out Button - only shown when user is checked in */}
+        {isCurrentUserPresent && !isScanning && !checkInResult?.success && (
+          <div className="bg-white rounded-xl shadow-sm p-4">
+            <button
+              onClick={async () => {
+                try {
+                  await togglePresence()
+                  setCheckInResult({
+                    success: true,
+                    userId: currentUserId || '',
+                    locationId: 'office',
+                    locationName: 'Office',
+                    action: 'check-out',
+                    timestamp: new Date().toISOString()
+                  })
+                  setTimeout(() => navigate('/dashboard'), 2000)
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Check out failed')
+                }
+              }}
+              className="w-full py-4 rounded-xl font-medium transition bg-red-600 text-white hover:bg-red-700"
+            >
+              Check Out Now
+            </button>
+          </div>
+        )}
+
+        {/* Instruction for check-in */}
+        {!isCurrentUserPresent && !isScanning && !checkInResult?.success && (
+          <div className="bg-blue-50 text-blue-700 px-4 py-3 rounded-xl text-sm">
+            Scan the QR code at the office entrance to check in
+          </div>
+        )}
+
         {/* Scan Area */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           {scanMode === 'qr' ? (
@@ -269,7 +316,14 @@ export default function ScanIn() {
                   )}
 
                   <button
-                    onClick={() => setIsScanning(!isScanning)}
+                    onClick={() => {
+                      if (!isScanning) {
+                        // Starting a new scan - clear previous state
+                        setError(null)
+                        setCheckInResult(null)
+                      }
+                      setIsScanning(!isScanning)
+                    }}
                     className={`w-full py-4 rounded-xl font-medium transition ${
                       isScanning
                         ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'

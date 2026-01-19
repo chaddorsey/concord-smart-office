@@ -2,7 +2,14 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { checkMockMode, enableMockMode, disableMockMode, isMockModeEnabled } from '../services/mockData'
 import type { ConnectionStatus } from '../services/types'
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001'
+// Use relative URLs to go through Vite's proxy (fixes third-party cookie issues)
+const BACKEND_URL = ''
+
+// Headers to bypass ngrok's browser warning page
+const getHeaders = (extra?: Record<string, string>) => ({
+  'ngrok-skip-browser-warning': 'true',
+  ...extra
+})
 
 interface User {
   id: number
@@ -58,7 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${BACKEND_URL}/api/auth/session`, {
         method: 'GET',
-        credentials: 'include'
+        credentials: 'include',
+        headers: getHeaders()
       })
       console.log('[Auth] Session response status:', response.status)
 
@@ -128,7 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Try backend demo login first
       const response = await fetch(`${BACKEND_URL}/api/auth/demo`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders({ 'Content-Type': 'application/json' }),
         credentials: 'include',
         body: JSON.stringify({ name: 'Demo User', email: 'demo@example.com' })
       })
@@ -178,7 +186,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await fetch(`${BACKEND_URL}/api/auth/logout`, {
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
+        headers: getHeaders()
       })
     } catch (err) {
       console.error('[Auth] Logout request failed:', err)

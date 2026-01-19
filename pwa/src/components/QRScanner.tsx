@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { BarcodeScanner, BarcodeFormat, type BarcodesScannedEvent } from '@capacitor-mlkit/barcode-scanning'
+import { Html5Qrcode } from 'html5-qrcode'
 
 interface QRScannerProps {
   onScan: (data: string) => void
@@ -21,9 +22,12 @@ function setScannerActive(active: boolean) {
 export default function QRScanner({ onScan, onError, onStop, isActive }: QRScannerProps) {
   const [isStarting, setIsStarting] = useState(false)
   const [hasPermission, setHasPermission] = useState<boolean | null>(null)
+  const [scannerReady, setScannerReady] = useState(false)
   const [isNative] = useState(() => Capacitor.isNativePlatform())
   const scanListenerRef = useRef<{ remove: () => Promise<void> } | null>(null)
   const hasScannedRef = useRef(false)
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null)
+  const scannerContainerId = 'qr-scanner-container'
 
   // Handle barcode scanned event for native
   const handleBarcodesScanned = useCallback((event: BarcodesScannedEvent) => {
@@ -48,16 +52,40 @@ export default function QRScanner({ onScan, onError, onStop, isActive }: QRScann
     }
   }, [onScan, onStop])
 
+  // Handle web QR scan success
+  const handleWebScanSuccess = useCallback((decodedText: string) => {
+    if (hasScannedRef.current) return
+    hasScannedRef.current = true
+    console.log('[QR] Web scanned:', decodedText)
+
+    // Stop scanner
+    if (html5QrCodeRef.current) {
+      html5QrCodeRef.current.stop().catch(() => {})
+      html5QrCodeRef.current = null
+    }
+    setScannerReady(false)
+
+    onScan(decodedText)
+    onStop?.()
+  }, [onScan, onStop])
+
   useEffect(() => {
     if (!isActive) {
       // Stop scanner when not active
       hasScannedRef.current = false
+      setScannerReady(false)
       if (isNative) {
         setScannerActive(false)
         BarcodeScanner.stopScan().catch(() => {})
         if (scanListenerRef.current) {
           scanListenerRef.current.remove().catch(() => {})
           scanListenerRef.current = null
+        }
+      } else {
+        // Stop web scanner
+        if (html5QrCodeRef.current) {
+          html5QrCodeRef.current.stop().catch(() => {})
+          html5QrCodeRef.current = null
         }
       }
       return
@@ -105,12 +133,80 @@ export default function QRScanner({ onScan, onError, onStop, isActive }: QRScann
       }
     }
 
+    const startWebScanner = async () => {
+      // Reset scan guard for new session
+      hasScannedRef.current = false
+      setIsStarting(true)
+      setHasPermission(null)
+      setScannerReady(false)
+
+      try {
+        // Clean up any existing scanner first
+        if (html5QrCodeRef.current) {
+          try {
+            await html5QrCodeRef.current.stop()
+          } catch {
+            // Ignore stop errors
+          }
+          html5QrCodeRef.current = null
+        }
+
+        // Wait for the container to be in the DOM
+        await new Promise(resolve => setTimeout(resolve, 100))
+
+        const container = document.getElementById(scannerContainerId)
+        if (!container) {
+          throw new Error('Scanner container not found')
+        }
+
+        // Clear the container
+        container.innerHTML = ''
+
+        // Create scanner instance
+        const html5QrCode = new Html5Qrcode(scannerContainerId, { verbose: false })
+        html5QrCodeRef.current = html5QrCode
+
+        // Use facingMode directly - simpler and works better on mobile Safari
+        console.log('[QR] Starting html5QrCode.start()...')
+        await html5QrCode.start(
+          { facingMode: 'environment' },
+          {
+            fps: 30,  // Higher FPS for faster detection
+            qrbox: { width: 280, height: 280 },  // Larger scan area
+            aspectRatio: 1,
+            disableFlip: false,  // Allow mirrored QR codes
+          },
+          handleWebScanSuccess,
+          () => {} // Ignore scan failures (no QR in frame)
+        )
+        console.log('[QR] html5QrCode.start() completed successfully')
+
+        setHasPermission(true)
+        setScannerReady(true)
+        console.log('[QR] Scanner state: hasPermission=true, scannerReady=true')
+      } catch (err) {
+        console.error('[QR] Failed to start web scanner:', err)
+        setHasPermission(false)
+        setScannerReady(false)
+
+        // Provide helpful error message
+        const errorMessage = err instanceof Error ? err.message : 'Failed to start camera'
+        if (errorMessage.includes('Permission') || errorMessage.includes('NotAllowed')) {
+          onError?.('Camera permission denied. Please allow camera access in Safari settings.')
+        } else if (errorMessage.includes('NotFound') || errorMessage.includes('No cameras') || errorMessage.includes('NotReadableError')) {
+          onError?.('Could not access camera. Please check permissions.')
+        } else {
+          onError?.(errorMessage)
+        }
+      } finally {
+        setIsStarting(false)
+      }
+    }
+
     if (isNative) {
       startNativeScanner()
     } else {
-      // Web fallback - show message to use native app
-      setHasPermission(false)
-      onError?.('QR scanning requires the native app on iOS')
+      startWebScanner()
     }
 
     // Cleanup
@@ -122,17 +218,30 @@ export default function QRScanner({ onScan, onError, onStop, isActive }: QRScann
           scanListenerRef.current.remove().catch(() => {})
           scanListenerRef.current = null
         }
+      } else {
+        if (html5QrCodeRef.current) {
+          html5QrCodeRef.current.stop().catch(() => {})
+          html5QrCodeRef.current = null
+        }
       }
     }
-  }, [isActive, isNative, onError, handleBarcodesScanned])
+  }, [isActive, isNative, onError, handleBarcodesScanned, handleWebScanSuccess])
 
   // Handle stop button
   const handleStop = () => {
-    setScannerActive(false)
-    BarcodeScanner.stopScan().catch(() => {})
-    if (scanListenerRef.current) {
-      scanListenerRef.current.remove().catch(() => {})
-      scanListenerRef.current = null
+    if (isNative) {
+      setScannerActive(false)
+      BarcodeScanner.stopScan().catch(() => {})
+      if (scanListenerRef.current) {
+        scanListenerRef.current.remove().catch(() => {})
+        scanListenerRef.current = null
+      }
+    } else {
+      if (html5QrCodeRef.current) {
+        html5QrCodeRef.current.stop().catch(() => {})
+        html5QrCodeRef.current = null
+      }
+      setScannerReady(false)
     }
     onStop?.()
   }
@@ -185,27 +294,87 @@ export default function QRScanner({ onScan, onError, onStop, isActive }: QRScann
     )
   }
 
-  // Loading or error state
-  return (
-    <div className="aspect-square bg-gray-900 rounded-xl overflow-hidden flex items-center justify-center">
-      {isStarting ? (
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-white">Starting camera...</p>
+  // Web scanner - always render the container, show/hide based on state
+  if (!isNative) {
+    return (
+      <div className="space-y-4">
+        {/* Camera viewport */}
+        <div className="relative bg-black rounded-xl overflow-hidden" style={{ minHeight: '280px', width: '100%' }}>
+          {/* Loading overlay - shown FIRST to ensure visibility during camera init */}
+          {isActive && isStarting && (
+            <div
+              className="absolute inset-0 bg-gray-900 rounded-xl flex items-center justify-center z-10"
+              style={{ minHeight: '280px', minWidth: '100%' }}
+            >
+              <div className="text-center">
+                <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-white">Starting camera...</p>
+              </div>
+            </div>
+          )}
+
+          {/* Scanner container - must stay in DOM and visible when active */}
+          <div
+            id={scannerContainerId}
+            className={`bg-black rounded-xl overflow-hidden ${
+              isActive ? '' : 'hidden'
+            }`}
+            style={{ minHeight: '280px', width: '100%', height: '280px' }}
+          />
+
+          {/* Scanning line animation - shown when scanner is ready */}
+          {isActive && scannerReady && (
+            <div className="absolute inset-x-0 top-0 h-full pointer-events-none z-10 overflow-hidden rounded-xl">
+              <div
+                className="absolute left-4 right-4 h-0.5 bg-gradient-to-r from-transparent via-green-500 to-transparent shadow-lg animate-scan"
+                style={{
+                  boxShadow: '0 0 8px 2px rgba(34, 197, 94, 0.6)',
+                  top: '0px'
+                }}
+              />
+            </div>
+          )}
+
+          {/* Error overlay */}
+          {isActive && !isStarting && hasPermission === false && (
+            <div className="absolute inset-0 bg-gray-900 rounded-xl flex items-center justify-center z-10" style={{ minHeight: '280px' }}>
+              <div className="text-center p-4">
+                <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                <p className="text-white font-medium">Camera access denied</p>
+                <p className="text-gray-400 text-sm mt-2">Please allow camera access in Safari settings</p>
+              </div>
+            </div>
+          )}
+
+          {/* Placeholder when not active */}
+          {!isActive && (
+            <div className="aspect-square bg-gray-100 rounded-xl flex items-center justify-center border-2 border-dashed border-gray-300" style={{ minHeight: '280px' }}>
+              <div className="text-center">
+                <svg className="w-20 h-20 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                </svg>
+                <p className="text-gray-600 font-medium">Ready to scan QR code</p>
+                <p className="text-gray-500 text-sm mt-1">Tap the button below to start camera</p>
+              </div>
+            </div>
+          )}
         </div>
-      ) : hasPermission === false ? (
-        <div className="text-center p-4">
-          <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-          </svg>
-          <p className="text-white font-medium">Camera access denied</p>
-          <p className="text-gray-400 text-sm mt-2">Please enable camera permissions in your device settings</p>
-        </div>
-      ) : (
-        <div className="text-center p-4">
-          <p className="text-gray-400">Initializing...</p>
-        </div>
-      )}
-    </div>
-  )
+
+        {/* Cancel button - outside camera viewport */}
+        {isActive && scannerReady && (
+          <button
+            onClick={handleStop}
+            className="w-full py-3 bg-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-300 transition"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  // Fallback (shouldn't reach here)
+  return null
 }

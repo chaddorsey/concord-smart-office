@@ -68,6 +68,10 @@ app.use(cors({
     if (origin.match(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/)) {
       return callback(null, true);
     }
+    // Allow any ngrok domain for development tunneling
+    if (origin.match(/^https:\/\/[a-z0-9]+\.ngrok-free\.app$/)) {
+      return callback(null, true);
+    }
     // Allow configured PWA URL
     if (origin === PWA_URL) {
       return callback(null, true);
@@ -76,7 +80,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
 }));
 
 // Static files from ./public
@@ -309,6 +313,9 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 // GET /api/auth/session - Get current user session
 app.get('/api/auth/session', (req, res) => {
+  console.log('[Session] Check - cookies:', Object.keys(req.cookies || {}));
+  console.log('[Session] Check - user:', req.user ? `id=${req.user.id}` : 'null');
+
   if (req.user) {
     res.json({
       authenticated: true,
@@ -341,6 +348,8 @@ app.post('/api/auth/logout', async (req, res) => {
 
 // POST /api/auth/demo - Demo login (only when OAuth not configured)
 app.post('/api/auth/demo', async (req, res) => {
+  console.log('[Demo] Login request from origin:', req.get('origin'));
+
   if (GOOGLE_OAUTH_CONFIGURED) {
     return res.status(403).json({
       error: 'Demo login disabled',
@@ -363,10 +372,14 @@ app.post('/api/auth/demo', async (req, res) => {
         avatar_url: null,
         role: 'user'
       });
+      console.log('[Demo] Created new user:', user.id);
+    } else {
+      console.log('[Demo] Found existing user:', user.id);
     }
 
     // Create session
     await authService.createSession(res, user.id);
+    console.log('[Demo] Session created for user:', user.id);
 
     res.json({
       success: true,

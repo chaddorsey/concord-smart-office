@@ -3,6 +3,15 @@ import { photoFrameService, type PhotoFrame, type MediaItem, type PhotoFrameStat
 import { useAuth } from './AuthContext'
 import { usePresence } from './PresenceContext'
 
+// Use relative URLs to go through Vite's proxy (fixes third-party cookie issues)
+const BACKEND_URL = ''
+
+// Headers for fetch requests (bypass ngrok warning)
+const getHeaders = (extra?: Record<string, string>) => ({
+  'ngrok-skip-browser-warning': 'true',
+  ...extra
+})
+
 // Demo media for mock mode
 const DEMO_MEDIA: MediaItem[] = [
   { id: '1', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920', type: 'image', title: 'Modern Office', playlist: 'Office Highlights', votes: 5 },
@@ -136,7 +145,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     {
       const fetchLocalState = async () => {
         try {
-          const response = await fetch('http://localhost:3001/api/queue')
+          const response = await fetch(`${BACKEND_URL}/api/queue`, {
+            headers: getHeaders()
+          })
           const data = await response.json()
 
           // Build frames from local API data
@@ -196,7 +207,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
 
     const fetchTrashLimit = async () => {
       try {
-        const response = await fetch(`http://localhost:3001/api/queue/trash-limit/${currentUserId}`)
+        const response = await fetch(`${BACKEND_URL}/api/queue/trash-limit/${currentUserId}`, {
+          headers: getHeaders()
+        })
         const result = await response.json()
 
         setLocalState(prev => ({
@@ -467,9 +480,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
     if (true) { // Always use backend API
       // Mock mode: use local queue API
       try {
-        const response = await fetch('http://localhost:3001/api/queue/add', {
+        const response = await fetch(`${BACKEND_URL}/api/queue/add`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(item)
         })
         const result = await response.json()
@@ -518,9 +531,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
 
     if (true) { // Always use backend API
       try {
-        await fetch('http://localhost:3001/api/queue/settings', {
+        await fetch(`${BACKEND_URL}/api/queue/settings`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(settings)
         })
         // Local state will be updated by polling
@@ -543,9 +556,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
 
     if (true) { // Always use backend API
       try {
-        await fetch(`http://localhost:3001/api/queue/frame/${frameId}/orientation`, {
+        await fetch(`${BACKEND_URL}/api/queue/frame/${frameId}/orientation`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ orientation })
         })
         // Local state will be updated by polling
@@ -588,8 +601,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
 
     if (true) { // Always use backend API
       try {
-        await fetch(`http://localhost:3001/api/queue/holding-tank/${itemId}`, {
-          method: 'DELETE'
+        await fetch(`${BACKEND_URL}/api/queue/holding-tank/${itemId}`, {
+          method: 'DELETE',
+          headers: getHeaders()
         })
         // Local state will be updated by polling
       } catch (err) {
@@ -619,9 +633,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
 
     if (true) { // Always use backend API
       try {
-        await fetch(`http://localhost:3001/api/queue/frame/${frameId}`, {
+        await fetch(`${BACKEND_URL}/api/queue/frame/${frameId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ position: newPosition })
         })
       } catch (err) {
@@ -659,9 +673,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
         let response
         if (isTogglingOff) {
           // Remove the vote entirely
-          response = await fetch('http://localhost:3001/api/queue/vote', {
+          response = await fetch(`${BACKEND_URL}/api/queue/vote`, {
             method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
               frameId,
               itemId,
@@ -670,9 +684,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
           })
         } else {
           // Add or change vote
-          response = await fetch('http://localhost:3001/api/queue/vote', {
+          response = await fetch(`${BACKEND_URL}/api/queue/vote`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
               frameId,
               itemId,
@@ -718,9 +732,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
 
     if (true) { // Always use backend API
       try {
-        const response = await fetch('http://localhost:3001/api/queue/trash', {
+        const response = await fetch(`${BACKEND_URL}/api/queue/trash`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             frameId,
             itemId,
@@ -762,7 +776,9 @@ export function PhotoFrameProvider({ children }: { children: ReactNode }) {
 
     if (true) { // Always use backend API
       try {
-        const response = await fetch(`http://localhost:3001/api/queue/trash-limit/${currentUserId}`)
+        const response = await fetch(`${BACKEND_URL}/api/queue/trash-limit/${currentUserId}`, {
+          headers: getHeaders()
+        })
         const result = await response.json()
 
         setLocalState(prev => ({

@@ -57,6 +57,15 @@ export default defineConfig({
   ],
   server: {
     host: true,
-    port: 5173
+    port: 5173,
+    allowedHosts: true,
+    proxy: {
+      // Proxy API requests to backend - makes cookies first-party
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false
+      }
+    }
   }
 })
