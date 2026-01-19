@@ -1,21 +1,303 @@
 /**
  * Oasis Sand Table Service
  * Handles pattern queue, LED queue, voting, and favorites management
+ * Integrates with Home Assistant Oasis Mini integration
  */
 
 const db = require('../db');
 
-// Available LED effects (from Oasis Mini integration)
-const LED_EFFECTS = [
+// Home Assistant configuration
+const HA_URL = process.env.HA_URL || 'http://localhost:8123';
+const HA_TOKEN = process.env.HA_TOKEN;
+
+// Oasis Mini entity IDs (discovered from HA)
+const OASIS_ENTITIES = {
+  mediaPlayer: 'media_player.coffee_table_ct251020897',
+  led: 'light.coffee_table_ct251020897_led',
+  playlist: 'select.coffee_table_ct251020897_playlist',
+  queue: 'select.coffee_table_ct251020897_queue',
+  ballSpeed: 'number.coffee_table_ct251020897_ball_speed',
+  ledSpeed: 'number.coffee_table_ct251020897_led_speed',
+  progress: 'sensor.coffee_table_ct251020897_drawing_progress',
+  image: 'image.coffee_table_ct251020897'
+};
+
+// Default LED effects (fallback if HA unavailable)
+let LED_EFFECTS = [
+  { id: 'solid', name: 'Solid', supportsColor: true },
   { id: 'rainbow', name: 'Rainbow', supportsColor: false },
   { id: 'glitter', name: 'Glitter', supportsColor: true },
   { id: 'confetti', name: 'Confetti', supportsColor: false },
   { id: 'bpm', name: 'BPM', supportsColor: false },
   { id: 'juggle', name: 'Juggle', supportsColor: false },
-  { id: 'solid', name: 'Solid Color', supportsColor: true },
-  { id: 'breathe', name: 'Breathe', supportsColor: true },
-  { id: 'pulse', name: 'Pulse', supportsColor: true }
+  { id: 'aurora_flow', name: 'Aurora Flow', supportsColor: false },
+  { id: 'breathing_exercise', name: 'Breathing Exercise 4-7-8', supportsColor: true }
 ];
+
+// ----------------------------------------------------------------------------
+// Home Assistant API helpers
+// ----------------------------------------------------------------------------
+
+async function haFetch(endpoint, options = {}) {
+  if (!HA_TOKEN) {
+    throw new Error('HA_TOKEN not configured');
+  }
+
+  const url = `${HA_URL}${endpoint}`;
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${HA_TOKEN}`,
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`HA API error: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+async function haCallService(domain, service, data, returnResponse = false) {
+  const url = `/api/services/${domain}/${service}${returnResponse ? '?return_response' : ''}`;
+  return haFetch(url, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+}
+
+async function haGetState(entityId) {
+  return haFetch(`/api/states/${entityId}`);
+}
+
+// ----------------------------------------------------------------------------
+// Home Assistant Integration
+// ----------------------------------------------------------------------------
+
+/**
+ * Fetch current Oasis status from Home Assistant
+ */
+async function fetchOasisStatusFromHA() {
+  try {
+    const [mediaPlayer, led, progress] = await Promise.all([
+      haGetState(OASIS_ENTITIES.mediaPlayer),
+      haGetState(OASIS_ENTITIES.led),
+      haGetState(OASIS_ENTITIES.progress)
+    ]);
+
+    return {
+      connected: true,
+      state: mediaPlayer.state, // idle, playing, paused
+      currentPattern: {
+        name: mediaPlayer.attributes.media_title,
+        thumbnailUrl: mediaPlayer.attributes.entity_picture,
+        duration: mediaPlayer.attributes.media_duration,
+        position: mediaPlayer.attributes.media_position
+      },
+      led: {
+        state: led.state, // on, off
+        effect: led.attributes.effect,
+        brightness: led.attributes.brightness,
+        color: led.attributes.rgb_color,
+        availableEffects: led.attributes.effect_list || []
+      },
+      progress: parseFloat(progress.state) || 0
+    };
+  } catch (error) {
+    console.error('Failed to fetch Oasis status from HA:', error.message);
+    return { connected: false, error: error.message };
+  }
+}
+
+/**
+ * Fetch available patterns from HA browse_media
+ */
+async function fetchPatternsFromHA() {
+  try {
+    // Use browse_media with return_response to get pattern library
+    // First browse into tracks_root to get actual patterns
+    const result = await haCallService('media_player', 'browse_media', {
+      entity_id: OASIS_ENTITIES.mediaPlayer,
+      media_content_id: 'tracks_root',
+      media_content_type: 'oasis_tracks'
+    }, true); // returnResponse = true
+
+    // Extract patterns from service response
+    const entityResponse = result.service_response?.[OASIS_ENTITIES.mediaPlayer];
+    const children = entityResponse?.children || [];
+
+    console.log(`[Oasis] Fetched ${children.length} patterns from HA`);
+
+    const patterns = children
+      .filter(item => item.can_play !== false)
+      .map(item => ({
+        id: item.media_content_id,
+        name: item.title,
+        thumbnailUrl: item.thumbnail
+      }));
+
+    // Cache patterns in database
+    for (const pattern of patterns) {
+      db.cacheOasisPattern(pattern);
+    }
+
+    console.log(`[Oasis] Cached ${patterns.length} patterns`);
+    return patterns;
+  } catch (error) {
+    console.error('Failed to fetch patterns from HA:', error.message);
+    // Return cached patterns on error
+    return db.getOasisPatterns();
+  }
+}
+
+/**
+ * Fetch playlists from HA
+ */
+async function fetchPlaylistsFromHA() {
+  try {
+    const playlistEntity = await haGetState(OASIS_ENTITIES.playlist);
+    return playlistEntity.attributes.options || [];
+  } catch (error) {
+    console.error('Failed to fetch playlists from HA:', error.message);
+    return [];
+  }
+}
+
+/**
+ * Update LED effects list from HA
+ */
+async function updateLedEffectsFromHA() {
+  try {
+    const ledEntity = await haGetState(OASIS_ENTITIES.led);
+    const effectList = ledEntity.attributes.effect_list || [];
+
+    // Map to our format
+    LED_EFFECTS = effectList.map(name => ({
+      id: name.toLowerCase().replace(/\s+/g, '_'),
+      name: name,
+      supportsColor: ['Solid', 'Glitter', 'Breathing Exercise 4-7-8', 'Palette Mode'].includes(name)
+    }));
+
+    return LED_EFFECTS;
+  } catch (error) {
+    console.error('Failed to update LED effects from HA:', error.message);
+    return LED_EFFECTS;
+  }
+}
+
+/**
+ * Play a pattern on the Oasis
+ */
+async function playPatternOnOasis(patternId, patternName) {
+  try {
+    await haCallService('media_player', 'play_media', {
+      entity_id: OASIS_ENTITIES.mediaPlayer,
+      media_content_id: patternId,
+      media_content_type: 'track'
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to play pattern on Oasis:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Set LED effect on the Oasis
+ */
+async function setLedEffectOnOasis(effectName, rgbColor = null, brightness = null) {
+  try {
+    const serviceData = {
+      entity_id: OASIS_ENTITIES.led,
+      effect: effectName
+    };
+
+    if (rgbColor) {
+      serviceData.rgb_color = rgbColor;
+    }
+    if (brightness !== null) {
+      serviceData.brightness = brightness;
+    }
+
+    await haCallService('light', 'turn_on', serviceData);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to set LED effect on Oasis:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Set playlist on the Oasis
+ */
+async function setPlaylistOnOasis(playlistName) {
+  try {
+    await haCallService('select', 'select_option', {
+      entity_id: OASIS_ENTITIES.playlist,
+      option: playlistName
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to set playlist on Oasis:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Fetch native queue from Oasis
+ * Returns the patterns currently in the Oasis's own queue
+ */
+async function fetchNativeQueueFromHA() {
+  try {
+    const queueEntity = await haGetState(OASIS_ENTITIES.queue);
+    const queueOptions = queueEntity.attributes.options || [];
+    const currentPattern = queueEntity.state;
+
+    // Map queue items to pattern objects
+    // The queue options are pattern names, we need to get thumbnails from media player
+    const mediaPlayer = await haGetState(OASIS_ENTITIES.mediaPlayer);
+    const currentThumbnail = mediaPlayer.attributes.entity_picture;
+
+    // Get cached patterns to look up thumbnails
+    const cachedPatterns = db.getOasisPatterns();
+    const thumbnailMap = {};
+    for (const p of cachedPatterns) {
+      // Match by name (case-insensitive)
+      thumbnailMap[p.name.toLowerCase()] = p.thumbnail_url;
+    }
+
+    // Helper to find thumbnail, with fallback for numbered duplicates like "Pattern Name (2)"
+    function findThumbnail(name) {
+      const lowerName = name.toLowerCase();
+      if (thumbnailMap[lowerName]) {
+        return thumbnailMap[lowerName];
+      }
+      // Try stripping "(N)" suffix for playlist duplicates
+      const baseMatch = name.match(/^(.+?)\s*\(\d+\)$/);
+      if (baseMatch) {
+        const baseName = baseMatch[1].toLowerCase();
+        return thumbnailMap[baseName] || null;
+      }
+      return null;
+    }
+
+    return {
+      current: currentPattern,
+      patterns: queueOptions.map((name, index) => ({
+        name,
+        // Use current thumbnail for first item, otherwise look up from cache
+        thumbnailUrl: index === 0 ? currentThumbnail : findThumbnail(name),
+        isNative: true,
+        position: index
+      }))
+    };
+  } catch (error) {
+    console.error('Failed to fetch native queue from HA:', error.message);
+    return { current: null, patterns: [] };
+  }
+}
 
 // ----------------------------------------------------------------------------
 // Pattern Queue Management
@@ -400,6 +682,17 @@ function getStatus() {
 }
 
 module.exports = {
+  // Home Assistant integration
+  fetchOasisStatusFromHA,
+  fetchPatternsFromHA,
+  fetchPlaylistsFromHA,
+  fetchNativeQueueFromHA,
+  updateLedEffectsFromHA,
+  playPatternOnOasis,
+  setLedEffectOnOasis,
+  setPlaylistOnOasis,
+  OASIS_ENTITIES,
+
   // Pattern queue
   getPatterns,
   cachePatterns,

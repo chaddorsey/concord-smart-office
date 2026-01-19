@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth, usePresence, useSpotify, useSandTable, usePhotoFrames } from '../stores'
+import { useAuth, usePresence, useSpotify, useOasis, usePhotoFrames } from '../stores'
 import BottomNav from '../components/BottomNav'
 
 function formatArrivalTime(isoString: string | null): string {
@@ -15,7 +15,7 @@ export default function Dashboard() {
   const { isAuthenticated, connectionStatus, logout } = useAuth()
   const { staff, presentCount, isCurrentUserPresent, isLoading, error, refresh } = usePresence()
   const { playback, skipVoteCount, skipVotesNeeded } = useSpotify()
-  const { oasis, leadingPattern, votesNeeded: sandVotesNeeded } = useSandTable()
+  const { status: oasisStatus, patternQueue } = useOasis()
   const { frames, mediaLibrary } = usePhotoFrames()
 
   // Redirect to login if not authenticated
@@ -175,15 +175,21 @@ export default function Dashboard() {
         <Link to="/sand" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Sand Table</h2>
-            {leadingPattern && leadingPattern.votes > 0 && (
+            {patternQueue.length > 0 && (
               <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-full text-xs font-medium">
-                {leadingPattern.votes}/{sandVotesNeeded} votes
+                {patternQueue.length} queued
               </span>
             )}
           </div>
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg flex items-center justify-center flex-shrink-0">
-              {oasis.status === 'playing' ? (
+            <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {oasisStatus?.currentPattern?.thumbnail_url ? (
+                <img
+                  src={oasisStatus.currentPattern.thumbnail_url}
+                  alt={oasisStatus.currentPattern.pattern_name}
+                  className="w-full h-full object-cover"
+                />
+              ) : oasisStatus?.isRunning ? (
                 <svg className="w-8 h-8 text-white animate-spin" style={{ animationDuration: '3s' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
@@ -194,24 +200,24 @@ export default function Dashboard() {
               )}
             </div>
             <div className="flex-1 min-w-0">
-              {oasis.currentPattern ? (
+              {oasisStatus?.currentPattern ? (
                 <>
-                  <p className="text-gray-900 font-medium truncate">{oasis.currentPattern}</p>
+                  <p className="text-gray-900 font-medium truncate">{oasisStatus.currentPattern.pattern_name}</p>
                   <div className="flex items-center gap-2 mt-1">
-                    {oasis.status === 'playing' ? (
+                    {oasisStatus.isRunning ? (
                       <span className="flex items-center gap-1 text-amber-600 text-xs">
                         <span className="w-2 h-2 bg-amber-600 rounded-full animate-pulse" />
                         Drawing
                       </span>
                     ) : (
-                      <span className="text-gray-400 text-xs capitalize">{oasis.status}</span>
+                      <span className="text-gray-400 text-xs">Idle</span>
                     )}
                   </div>
                 </>
               ) : (
                 <>
                   <p className="text-gray-500 font-medium">No pattern</p>
-                  <p className="text-gray-400 text-sm">Tap to vote on patterns</p>
+                  <p className="text-gray-400 text-sm">Tap to add patterns</p>
                 </>
               )}
             </div>

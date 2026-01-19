@@ -83,8 +83,28 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
 }));
 
-// Static files from ./public
+// Static files from ./public (kiosk pages, etc.)
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Force no-cache for index.html and service worker (iOS cache busting)
+app.get(['/', '/index.html', '/sw.js', '/workbox-*.js'], (req, res, next) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
+// Static files from PWA dist folder (main app)
+app.use(express.static(path.join(__dirname, '../pwa/dist'), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res, filepath) => {
+    // No cache for HTML and service worker files
+    if (filepath.endsWith('.html') || filepath.endsWith('sw.js') || filepath.includes('workbox')) {
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  }
+}));
 
 // Session verification middleware - attach user to request if authenticated
 app.use(authService.verifySession);
@@ -100,6 +120,9 @@ if (GOOGLE_OAUTH_CONFIGURED) {
 } else {
   console.log('Google OAuth not configured - running in demo mode');
 }
+
+// Create demo-compatible auth middleware (falls back to demo user when cookies don't work)
+const requireAuthOrDemo = authService.createRequireAuthOrDemo(GOOGLE_OAUTH_CONFIGURED);
 
 // ============================================================================
 // In-Memory Queue Storage (for frame display - mock mode without HA)
@@ -1581,7 +1604,7 @@ app.get('/api/oasis/queue', (req, res) => {
 });
 
 // Submit pattern to queue
-app.post('/api/oasis/submit', authService.requireAuth, (req, res) => {
+app.post('/api/oasis/submit', requireAuthOrDemo, (req, res) => {
   try {
     const { pattern_id, pattern_name, thumbnail_url } = req.body;
 
@@ -1745,7 +1768,7 @@ app.get('/api/oasis/favorites', (req, res) => {
 });
 
 // Add pattern to favorites
-app.post('/api/oasis/favorites', authService.requireAuth, (req, res) => {
+app.post('/api/oasis/favorites', requireAuthOrDemo, (req, res) => {
   try {
     const { pattern_id, pattern_name, thumbnail_url } = req.body;
 
@@ -1762,7 +1785,7 @@ app.post('/api/oasis/favorites', authService.requireAuth, (req, res) => {
 });
 
 // Remove pattern from favorites
-app.delete('/api/oasis/favorites/:patternId', authService.requireAuth, (req, res) => {
+app.delete('/api/oasis/favorites/:patternId', requireAuthOrDemo, (req, res) => {
   try {
     oasisService.removePatternFavorite(req.params.patternId);
     res.json({ success: true });
@@ -1797,6 +1820,110 @@ app.put('/api/oasis/settings/led-interval', authService.requireAuth, (req, res) 
   } catch (error) {
     console.error('[Oasis] Failed to update LED interval:', error);
     res.status(400).json({ error: error.message });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Oasis Home Assistant Integration Routes
+// ----------------------------------------------------------------------------
+
+// Get real-time Oasis status from Home Assistant
+app.get('/api/oasis/ha/status', async (req, res) => {
+  try {
+    const status = await oasisService.fetchOasisStatusFromHA();
+    res.json(status);
+  } catch (error) {
+    console.error('[Oasis] Failed to fetch HA status:', error);
+    res.status(500).json({ error: error.message, connected: false });
+  }
+});
+
+// Fetch patterns from Home Assistant (browse_media)
+app.get('/api/oasis/ha/patterns', async (req, res) => {
+  try {
+    const patterns = await oasisService.fetchPatternsFromHA();
+    res.json({ patterns });
+  } catch (error) {
+    console.error('[Oasis] Failed to fetch patterns from HA:', error);
+    res.status(500).json({ error: error.message, patterns: [] });
+  }
+});
+
+// Fetch playlists from Home Assistant
+app.get('/api/oasis/ha/playlists', async (req, res) => {
+  try {
+    const playlists = await oasisService.fetchPlaylistsFromHA();
+    res.json({ playlists });
+  } catch (error) {
+    console.error('[Oasis] Failed to fetch playlists from HA:', error);
+    res.status(500).json({ error: error.message, playlists: [] });
+  }
+});
+
+// Fetch native queue from Oasis
+app.get('/api/oasis/ha/queue', async (req, res) => {
+  try {
+    const nativeQueue = await oasisService.fetchNativeQueueFromHA();
+    res.json(nativeQueue);
+  } catch (error) {
+    console.error('[Oasis] Failed to fetch native queue from HA:', error);
+    res.status(500).json({ error: error.message, current: null, patterns: [] });
+  }
+});
+
+// Get LED effects from Home Assistant
+app.get('/api/oasis/ha/effects', async (req, res) => {
+  try {
+    const effects = await oasisService.updateLedEffectsFromHA();
+    res.json({ effects });
+  } catch (error) {
+    console.error('[Oasis] Failed to fetch LED effects from HA:', error);
+    res.json({ effects: oasisService.LED_EFFECTS });
+  }
+});
+
+// Play a pattern on the Oasis (direct HA control)
+app.post('/api/oasis/ha/play', authService.requireAuth, async (req, res) => {
+  try {
+    const { pattern_id, pattern_name } = req.body;
+    if (!pattern_id) {
+      return res.status(400).json({ error: 'pattern_id is required' });
+    }
+    const result = await oasisService.playPatternOnOasis(pattern_id, pattern_name);
+    res.json(result);
+  } catch (error) {
+    console.error('[Oasis] Failed to play pattern:', error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// Set LED effect on the Oasis (direct HA control)
+app.post('/api/oasis/ha/led', authService.requireAuth, async (req, res) => {
+  try {
+    const { effect, rgb_color, brightness } = req.body;
+    if (!effect) {
+      return res.status(400).json({ error: 'effect is required' });
+    }
+    const result = await oasisService.setLedEffectOnOasis(effect, rgb_color, brightness);
+    res.json(result);
+  } catch (error) {
+    console.error('[Oasis] Failed to set LED effect:', error);
+    res.status(500).json({ error: error.message, success: false });
+  }
+});
+
+// Set playlist on the Oasis
+app.post('/api/oasis/ha/playlist', authService.requireAuth, async (req, res) => {
+  try {
+    const { playlist } = req.body;
+    if (!playlist) {
+      return res.status(400).json({ error: 'playlist is required' });
+    }
+    const result = await oasisService.setPlaylistOnOasis(playlist);
+    res.json(result);
+  } catch (error) {
+    console.error('[Oasis] Failed to set playlist:', error);
+    res.status(500).json({ error: error.message, success: false });
   }
 });
 
@@ -1840,18 +1967,18 @@ app.get('/api/config', (req, res) => {
 
 // Serve PWA for /app and /app/* routes
 app.get('/app', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '../pwa/dist', 'index.html'));
 });
 
 app.get('/app/*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '../pwa/dist', 'index.html'));
 });
 
 // Also serve PWA for common routes used by the SPA
 const pwaRoutes = ['/login', '/dashboard', '/scan', '/music', '/sand', '/photos', '/frames', '/browse-videos'];
 pwaRoutes.forEach(route => {
   app.get(route, (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, '../pwa/dist', 'index.html'));
   });
 });
 
@@ -1960,6 +2087,19 @@ app.use((err, req, res, next) => {
     error: err.message || 'Internal Server Error',
     ...(isDev && { stack: err.stack })
   });
+});
+
+// ============================================================================
+// PWA Catch-all Route (for client-side routing)
+// ============================================================================
+
+// Serve index.html for any non-API routes (SPA client-side routing)
+app.get('*', (req, res) => {
+  // Don't serve index.html for API routes or static files that exist
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Not Found' });
+  }
+  res.sendFile(path.join(__dirname, '../pwa/dist/index.html'));
 });
 
 // ============================================================================

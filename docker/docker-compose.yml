@@ -68,6 +68,7 @@ services:
       - ha-config:/config
       - ../homeassistant/packages:/config/packages:ro
       - ../homeassistant/configuration.yaml:/config/configuration.yaml:ro
+      - ../homeassistant/custom_components:/config/custom_components:ro
     environment:
       - TZ=${TZ:-America/New_York}
     healthcheck:

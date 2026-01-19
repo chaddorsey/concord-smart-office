@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider, PresenceProvider, SpotifyProvider, MusicProvider, SandTableProvider, PhotoFrameProvider } from './stores'
+import { AuthProvider, PresenceProvider, SpotifyProvider, MusicProvider, OasisProvider, PhotoFrameProvider } from './stores'
 import { initializeHAConnection } from './services/haWebSocket'
 import Login from './views/Login'
 import Dashboard from './views/Dashboard'
@@ -22,7 +22,7 @@ function App() {
       <PresenceProvider>
         <SpotifyProvider>
           <MusicProvider>
-            <SandTableProvider>
+            <OasisProvider>
               <PhotoFrameProvider>
                 <BrowserRouter>
                 <Routes>
@@ -38,7 +38,7 @@ function App() {
                 </Routes>
               </BrowserRouter>
               </PhotoFrameProvider>
-            </SandTableProvider>
+            </OasisProvider>
           </MusicProvider>
         </SpotifyProvider>
       </PresenceProvider>

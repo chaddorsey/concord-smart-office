@@ -232,6 +232,61 @@ function requireAuth(req, res, next) {
 }
 
 /**
+ * Factory function to create a middleware that requires auth OR allows demo mode fallback
+ * In demo mode (OAuth not configured), if no session cookie is present,
+ * automatically use the demo user (for cross-origin cookie issues)
+ * @param {boolean} isOAuthConfigured - Whether Google OAuth is configured
+ * @returns {Function} Express middleware
+ */
+function createRequireAuthOrDemo(isOAuthConfigured) {
+  return async function requireAuthOrDemo(req, res, next) {
+    // If user is already authenticated via session, proceed
+    if (req.user) {
+      return next();
+    }
+
+    // If OAuth is configured, strict auth is required
+    if (isOAuthConfigured) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        code: 'UNAUTHORIZED',
+        message: 'You must be logged in to access this resource'
+      });
+    }
+
+    // Demo mode: try to find/use the default demo user
+    try {
+      // Look for existing demo user
+      let demoUser = db.getUserByEmail('demo@example.com');
+
+      if (!demoUser) {
+        // Create demo user if doesn't exist
+        demoUser = db.createUser({
+          email: 'demo@example.com',
+          name: 'Demo User',
+          google_id: `demo_fallback`,
+          avatar_url: null,
+          role: 'user'
+        });
+        console.log('[Demo Fallback] Created demo user:', demoUser.id);
+      }
+
+      // Attach demo user to request
+      req.user = demoUser;
+      req.isDemoFallback = true;
+      console.log('[Demo Fallback] Using demo user for request:', req.path);
+      return next();
+    } catch (error) {
+      console.error('[Demo Fallback] Error getting demo user:', error);
+      return res.status(500).json({
+        error: 'Internal error',
+        message: 'Failed to initialize demo mode'
+      });
+    }
+  };
+}
+
+/**
  * Create a new session for a user
  * @param {object} res - Express response object (for setting cookie)
  * @param {string} userId - The user's ID
@@ -340,6 +395,7 @@ module.exports = {
   // Middleware
   verifySession,
   requireAuth,
+  createRequireAuthOrDemo,
 
   // Session management
   createSession,

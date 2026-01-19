@@ -11,7 +11,7 @@ export default defineConfig({
       manifest: {
         name: 'Concord Smart Office',
         short_name: 'SmartOffice',
-        description: 'Staff presence management and entertainment control for Concord Smart Office',
+        description: 'Staff presence and entertainment control for Concord Smart Office v1.3',
         theme_color: '#1e40af',
         background_color: '#ffffff',
         display: 'standalone',
@@ -39,7 +39,17 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        // Don't let service worker intercept API requests
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
+          {
+            // Let API requests go directly to network, never cache
+            urlPattern: /\/api\//,
+            handler: 'NetworkOnly'
+          },
           {
             urlPattern: /^https:\/\/.*\.homeassistant\.local/,
             handler: 'NetworkFirst',

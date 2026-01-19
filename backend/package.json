@@ -16,6 +16,7 @@
     "express-rate-limit": "^7.1.5",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.3",
+    "ws": "^8.19.0"
   }
 }
