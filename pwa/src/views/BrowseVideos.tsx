@@ -27,6 +27,9 @@ export default function BrowseVideos() {
   // Modal state
   const [selectedVideo, setSelectedVideo] = useState<PixabayVideo | null>(null)
 
+  // Hover preview state - only one video plays at a time
+  const [previewingId, setPreviewingId] = useState<string | null>(null)
+
   // Get available orientations from frames
   const availableOrientations = getAvailableOrientations()
 
@@ -302,16 +305,30 @@ export default function BrowseVideos() {
                   }`}
                 >
                   <div className="flex">
-                    {/* Thumbnail */}
+                    {/* Thumbnail with video preview on hover/tap */}
                     <div
-                      className="w-32 h-24 flex-shrink-0 bg-gray-900 relative cursor-pointer"
+                      className={`${video.orientation === 'vertical' ? 'w-20' : 'w-32'} h-24 flex-shrink-0 bg-gray-900 relative cursor-pointer overflow-hidden`}
                       onClick={() => openPreview(video)}
+                      onMouseEnter={() => setPreviewingId(video.id)}
+                      onMouseLeave={() => setPreviewingId(null)}
+                      onTouchStart={() => setPreviewingId(prev => prev === video.id ? null : video.id)}
                     >
-                      <img
-                        src={video.thumbnail}
-                        alt={video.title}
-                        className="w-full h-full object-cover"
-                      />
+                      {previewingId === video.id ? (
+                        <video
+                          src={video.previewUrl}
+                          className="w-full h-full object-cover"
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                        />
+                      ) : (
+                        <img
+                          src={video.thumbnail}
+                          alt={video.title}
+                          className="w-full h-full object-cover"
+                        />
+                      )}
                       {/* Duration badge */}
                       <span className="absolute bottom-1 right-1 bg-black/75 text-white text-xs px-1.5 py-0.5 rounded">
                         {formatDuration(video.duration)}
@@ -336,11 +353,14 @@ export default function BrowseVideos() {
                           !
                         </span>
                       )}
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition">
-                        <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </div>
+                      {/* Play icon overlay - only show when not previewing */}
+                      {previewingId !== video.id && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition">
+                          <svg className="w-10 h-10 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z" />
+                          </svg>
+                        </div>
+                      )}
                     </div>
 
                     {/* Info */}
@@ -424,22 +444,22 @@ export default function BrowseVideos() {
       {/* Preview Modal */}
       {selectedVideo && (
         <div
-          className="fixed inset-0 bg-black/90 z-50 flex flex-col"
+          className="fixed inset-0 bg-black/90 z-50 flex flex-col overflow-y-auto"
           onClick={closePreview}
         >
-          <div className="flex-1 flex items-center justify-center p-4" onClick={e => e.stopPropagation()}>
-            <div className="w-full max-w-lg">
+          <div className="flex-1 flex items-center justify-center p-4 min-h-0" onClick={e => e.stopPropagation()}>
+            <div className={`w-full ${selectedVideo.orientation === 'vertical' ? 'max-w-xs' : 'max-w-lg'}`}>
               {/* Close button */}
               <button
                 onClick={closePreview}
-                className="absolute top-4 right-4 text-white p-2"
+                className="absolute top-4 right-4 text-white p-2 z-10"
               >
                 <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
 
-              {/* Video */}
+              {/* Video - limit height for vertical videos */}
               <video
                 src={selectedVideo.url}
                 autoPlay
@@ -447,7 +467,8 @@ export default function BrowseVideos() {
                 muted
                 playsInline
                 controls
-                className="w-full rounded-lg"
+                className={`w-full rounded-lg ${selectedVideo.orientation === 'vertical' ? 'max-h-[50vh]' : ''}`}
+                style={selectedVideo.orientation === 'vertical' ? { margin: '0 auto', display: 'block' } : undefined}
               />
 
               {/* Info & Actions */}

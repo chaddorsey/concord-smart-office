@@ -29,7 +29,10 @@ export interface PixabaySearchResult {
   videos: PixabayVideo[]
 }
 
-const FRAME_DISPLAY_URL = import.meta.env.VITE_FRAME_DISPLAY_URL || 'http://localhost:3001'
+// Use relative URLs to go through Vite proxy (fixes cross-origin issues on mobile)
+const getHeaders = () => ({
+  'ngrok-skip-browser-warning': 'true'
+})
 
 export const pixabayService = {
   async searchVideos(query: string, options: {
@@ -47,7 +50,9 @@ export const pixabayService = {
       params.set('category', options.category)
     }
 
-    const response = await fetch(`${FRAME_DISPLAY_URL}/api/pixabay/videos?${params}`)
+    const response = await fetch(`/api/pixabay/videos?${params}`, {
+      headers: getHeaders()
+    })
 
     if (!response.ok) {
       const error = await response.json()
@@ -58,7 +63,9 @@ export const pixabayService = {
   },
 
   async getCategories(): Promise<string[]> {
-    const response = await fetch(`${FRAME_DISPLAY_URL}/api/pixabay/categories`)
+    const response = await fetch('/api/pixabay/categories', {
+      headers: getHeaders()
+    })
 
     if (!response.ok) {
       throw new Error('Failed to fetch categories')
