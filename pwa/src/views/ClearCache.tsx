@@ -47,7 +47,7 @@ export default function ClearCache() {
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full text-center">
-        <h1 className="text-xl font-bold text-gray-900 mb-4">Clear App Cache</h1>
+        <h1 className="text-xl font-black text-gray-900 font-museo mb-4">Clear App Cache</h1>
 
         {status === 'idle' && (
           <>

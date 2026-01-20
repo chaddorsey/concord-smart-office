@@ -24,9 +24,8 @@ const navItems = [
     label: 'Sand Table',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12c2-4 4-6 8-6s6 4 8 2" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16c3-3 5-5 9-3s5 1 7-1" />
-        <circle cx="20" cy="15" r="2.5" fill="currentColor" stroke="none" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 18 C6 18 6 10 9 10 S12 16 15 16 S18 8 19 8" />
+        <circle cx="19" cy="8" r="2.5" fill="currentColor" stroke="none" />
       </svg>
     )
   },

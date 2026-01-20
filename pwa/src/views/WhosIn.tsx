@@ -86,7 +86,7 @@ export default function WhosIn() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <h1 className="text-xl font-bold text-gray-900">Who's In</h1>
+          <h1 className="text-xl font-black text-gray-900 font-museo">Who's In</h1>
           <div className="w-10" />
         </div>
       </header>

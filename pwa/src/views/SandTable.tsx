@@ -249,7 +249,7 @@ export default function SandTable() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <h1 className="text-xl font-bold">Sand Table</h1>
+          <h1 className="text-xl font-black font-museo">Sand Table</h1>
           <button
             onClick={refresh}
             className="p-2 hover:bg-amber-500 rounded-lg transition"

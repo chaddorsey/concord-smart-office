@@ -165,7 +165,7 @@ export default function ScanIn() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <h1 className="text-xl font-bold">Check In / Out</h1>
+          <h1 className="text-xl font-black font-museo">Check In / Out</h1>
           <div className="w-10" />
         </div>
       </header>

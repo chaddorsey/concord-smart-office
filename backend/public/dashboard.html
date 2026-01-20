@@ -3,180 +3,510 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="60">
-  <title>Office Dashboard - Concord</title>
+  <meta http-equiv="refresh" content="300">
+  <title>Office Dashboard - Concord Consortium</title>
+  <!-- Museo Sans approximation using system fonts; replace with Adobe Fonts embed for production -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
-      min-height: 100vh;
-      color: white;
-      padding: 2rem;
+    :root {
+      --cc-black: #000000;
+      --cc-white: #ffffff;
+      --cc-gold: #ffc320;
+      --cc-cyan: #0693e3;
+      --cc-purple: #9b51e0;
+      --cc-green: #00d084;
+      --cc-gray-light: #f5f5f5;
+      --cc-gray: #e0e0e0;
+      --cc-gray-dark: #666666;
+      /* Using Nunito as Museo Sans approximation */
+      --font-heading: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-body: 'Nunito Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--cc-white);
+      min-height: 100vh;
+      color: var(--cc-black);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
     .header {
+      background: var(--cc-black);
+      color: var(--cc-white);
+      padding: 1rem 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 2rem;
     }
-    .logo { font-size: 1.5rem; font-weight: 600; }
-    .time { font-size: 2rem; font-weight: 300; }
-    .grid {
+
+    .logo {
+      font-family: var(--font-heading);
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .logo span {
+      color: var(--cc-gold);
+    }
+
+    .time {
+      font-size: 2rem;
+      font-weight: 300;
+    }
+
+    /* Alert Banner */
+    .alert-banner {
+      display: none;
+      background: var(--cc-gold);
+      color: var(--cc-black);
+      padding: 0.75rem 1.5rem;
+      font-weight: 600;
+      text-align: center;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .alert-banner.show { display: block; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+    }
+
+    /* Main Grid - Portrait Layout */
+    .main-grid {
+      flex: 1;
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 2rem;
-      height: calc(100vh - 8rem);
-    }
-    .card {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 1.5rem;
+      grid-template-rows: auto auto auto 1fr;
+      gap: 1rem;
+      padding: 1rem;
       overflow: hidden;
     }
-    .card-title {
-      font-size: 0.9rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      opacity: 0.6;
-      margin-bottom: 1rem;
+
+    /* Panel Styles */
+    .panel {
+      background: var(--cc-white);
+      border: 1px solid var(--cc-gray);
+      border-radius: 12px;
+      overflow: hidden;
     }
-    .presence-list {
+
+    .panel-header {
+      background: var(--cc-gray-light);
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--cc-gray);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .panel-header h2 {
+      font-family: var(--font-heading);
+      font-size: 0.875rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--cc-gray-dark);
+    }
+
+    .panel-content {
+      padding: 1rem;
+    }
+
+    /* Staff Panel - Full width top */
+    .panel-staff {
+      grid-column: span 2;
+    }
+
+    .staff-grid {
       display: flex;
       flex-wrap: wrap;
       gap: 1rem;
     }
-    .person {
+
+    .staff-card {
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      background: rgba(255, 255, 255, 0.1);
-      padding: 0.75rem 1rem;
-      border-radius: 12px;
+      padding: 0.5rem;
+      border-radius: 8px;
+      background: var(--cc-gray-light);
+      min-width: 180px;
     }
-    .avatar {
+
+    .staff-avatar {
       width: 48px;
       height: 48px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      background: linear-gradient(135deg, var(--cc-cyan), var(--cc-purple));
       display: flex;
       align-items: center;
       justify-content: center;
+      font-family: var(--font-heading);
       font-size: 1.25rem;
       font-weight: 600;
+      color: white;
+      flex-shrink: 0;
+      overflow: hidden;
     }
-    .person-info { line-height: 1.3; }
-    .person-name { font-weight: 500; }
-    .person-time { font-size: 0.85rem; opacity: 0.7; }
+
+    .staff-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .staff-info .name {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .staff-info .time {
+      font-size: 0.8rem;
+      color: var(--cc-gray-dark);
+    }
+
     .empty-state {
-      opacity: 0.5;
-      font-size: 1.25rem;
-      text-align: center;
-      padding: 2rem;
+      color: var(--cc-gray-dark);
+      font-style: italic;
+      padding: 1rem;
     }
-    .now-playing {
+
+    /* Check-in Panel */
+    .panel-checkin {
       display: flex;
-      align-items: center;
-      gap: 1.5rem;
+      flex-direction: column;
     }
-    .album-art {
-      width: 120px;
-      height: 120px;
-      background: rgba(255, 255, 255, 0.1);
+
+    .panel-checkin .panel-header {
+      background: var(--cc-gold);
+    }
+
+    .panel-checkin .panel-header h2 {
+      color: var(--cc-black);
+    }
+
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem;
+    }
+
+    #qrcode {
+      background: white;
+      padding: 0.5rem;
       border-radius: 8px;
     }
-    .track-info h3 {
-      font-size: 1.5rem;
-      margin-bottom: 0.5rem;
+
+    #qrcode canvas {
+      display: block;
     }
-    .track-info p {
-      opacity: 0.7;
-      font-size: 1.1rem;
+
+    .backup-code {
+      font-family: monospace;
+      font-size: 1.25rem;
+      letter-spacing: 0.25rem;
+      margin-top: 0.75rem;
+      color: var(--cc-gray-dark);
     }
-    .frames-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 1rem;
+
+    .qr-refresh {
+      font-size: 0.75rem;
+      color: var(--cc-gray-dark);
+      margin-top: 0.5rem;
     }
-    .frame-status {
-      background: rgba(255, 255, 255, 0.1);
-      padding: 1rem;
-      border-radius: 12px;
-      text-align: center;
+
+    /* Upcoming Events Panel */
+    .event-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
     }
-    .frame-status h4 {
+
+    .event-item {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+
+    .event-time {
+      font-weight: 600;
+      color: var(--cc-cyan);
+      min-width: 60px;
       font-size: 0.9rem;
-      opacity: 0.7;
-      margin-bottom: 0.5rem;
     }
-    .frame-status .count {
-      font-size: 1.5rem;
+
+    .event-details {
+      flex: 1;
+    }
+
+    .event-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .event-room {
+      font-size: 0.8rem;
+      color: var(--cc-gray-dark);
+    }
+
+    /* Trains Panel */
+    .train-next {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--cc-gray);
+    }
+
+    .train-next-time {
+      font-size: 2rem;
+      font-weight: 700;
+      font-family: var(--font-heading);
+      color: var(--cc-cyan);
+    }
+
+    .train-next-dest {
+      font-size: 0.9rem;
+      color: var(--cc-gray-dark);
+    }
+
+    .train-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .train-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+    }
+
+    .train-item .time { font-weight: 500; }
+    .train-item .dest { color: var(--cc-gray-dark); }
+
+    /* Announcements Panel */
+    .announcement-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .announcement-item {
+      padding: 0.75rem;
+      background: var(--cc-gray-light);
+      border-radius: 8px;
+      border-left: 3px solid var(--cc-cyan);
+    }
+
+    .announcement-item.alert {
+      border-left-color: var(--cc-gold);
+      background: #fffbeb;
+    }
+
+    .announcement-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .announcement-message {
+      font-size: 0.85rem;
+      color: var(--cc-gray-dark);
+    }
+
+    /* Who's Where Panel - Full width bottom */
+    .panel-map {
+      grid-column: span 2;
+    }
+
+    .map-container {
+      position: relative;
+      width: 100%;
+      max-height: 300px;
+      overflow: hidden;
+    }
+
+    .map-container svg, .map-container img {
+      width: 100%;
+      height: auto;
+    }
+
+    .map-person {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transform: translate(-50%, -100%);
+    }
+
+    .map-person-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--cc-cyan);
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .map-person-icon.unknown {
+      background: transparent;
+      border: 2px dashed var(--cc-gray-dark);
+    }
+
+    .map-person-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: rgba(255,255,255,0.9);
+      padding: 0.125rem 0.375rem;
+      border-radius: 4px;
+      margin-top: 0.25rem;
+      white-space: nowrap;
+    }
+
+    .map-room-overlay {
+      position: absolute;
+      background: rgba(255, 195, 32, 0.8);
+      color: var(--cc-black);
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
       font-weight: 600;
     }
-    .status-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      margin-right: 0.5rem;
+
+    .untracked-list {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--cc-gray);
     }
-    .status-dot.online { background: #4ade80; }
-    .status-dot.offline { background: #f87171; }
+
+    .untracked-label {
+      font-size: 0.75rem;
+      color: var(--cc-gray-dark);
+      margin-bottom: 0.5rem;
+    }
+
+    .untracked-people {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .untracked-person {
+      font-size: 0.8rem;
+      padding: 0.25rem 0.5rem;
+      background: var(--cc-gray-light);
+      border-radius: 4px;
+    }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="logo">Concord Smart Office</div>
+  <header class="header">
+    <div class="logo">Concord <span>Consortium</span></div>
     <div class="time" id="clock">--:--</div>
-  </div>
+  </header>
 
-  <div class="grid">
-    <div class="card" style="grid-row: span 2;">
-      <h2 class="card-title">In Office Today</h2>
-      <div class="presence-list" id="presence-list">
-        <div class="empty-state">Loading...</div>
+  <div class="alert-banner" id="alert-banner"></div>
+
+  <main class="main-grid">
+    <!-- Staff In Office -->
+    <section class="panel panel-staff">
+      <div class="panel-header">
+        <h2>In the Office</h2>
       </div>
-    </div>
-
-    <div class="card">
-      <h2 class="card-title">Now Playing</h2>
-      <div class="now-playing" id="now-playing">
-        <div class="empty-state">Nothing playing</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2 class="card-title">Photo Frames</h2>
-      <div class="frames-grid" id="frames-grid">
-        <div class="frame-status">
-          <h4>Frame 1</h4>
-          <span class="status-dot online"></span>
-          <span class="count" id="frame1-count">-</span>
-        </div>
-        <div class="frame-status">
-          <h4>Frame 2</h4>
-          <span class="status-dot online"></span>
-          <span class="count" id="frame2-count">-</span>
-        </div>
-        <div class="frame-status">
-          <h4>Frame 3</h4>
-          <span class="status-dot online"></span>
-          <span class="count" id="frame3-count">-</span>
-        </div>
-        <div class="frame-status">
-          <h4>Frame 4</h4>
-          <span class="status-dot online"></span>
-          <span class="count" id="frame4-count">-</span>
+      <div class="panel-content">
+        <div class="staff-grid" id="staff-grid">
+          <div class="empty-state">Loading...</div>
         </div>
       </div>
-    </div>
-  </div>
+    </section>
 
+    <!-- Check-in QR Code -->
+    <section class="panel panel-checkin">
+      <div class="panel-header">
+        <h2>Check In!</h2>
+      </div>
+      <div class="qr-container">
+        <div id="qrcode"></div>
+        <div class="backup-code" id="backup-code">------</div>
+        <div class="qr-refresh" id="qr-refresh">Refreshing...</div>
+      </div>
+    </section>
+
+    <!-- Upcoming Events -->
+    <section class="panel panel-events">
+      <div class="panel-header">
+        <h2>Upcoming</h2>
+      </div>
+      <div class="panel-content">
+        <div class="event-list" id="event-list">
+          <div class="empty-state">No upcoming events</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Next Trains -->
+    <section class="panel panel-trains">
+      <div class="panel-header">
+        <h2>Next Trains</h2>
+      </div>
+      <div class="panel-content">
+        <div class="train-next" id="train-next">
+          <div class="train-next-time">--</div>
+          <div class="train-next-dest">Loading...</div>
+        </div>
+        <div class="train-list" id="train-list"></div>
+      </div>
+    </section>
+
+    <!-- Announcements -->
+    <section class="panel panel-announcements">
+      <div class="panel-header">
+        <h2>Announcements</h2>
+      </div>
+      <div class="panel-content">
+        <div class="announcement-list" id="announcement-list">
+          <div class="empty-state">No announcements</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Who's Where Map -->
+    <section class="panel panel-map">
+      <div class="panel-header">
+        <h2>Who's Where</h2>
+      </div>
+      <div class="panel-content">
+        <div class="map-container" id="map-container">
+          <!-- Office map SVG will be loaded here -->
+          <div class="empty-state">Map loading...</div>
+        </div>
+        <div class="untracked-list" id="untracked-section" style="display: none;">
+          <div class="untracked-label">Also in office (location unknown):</div>
+          <div class="untracked-people" id="untracked-people"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script>
     const API_BASE = window.location.origin;
+    const KIOSK_ID = 'dashboard';
 
+    // =========================================================================
     // Clock
+    // =========================================================================
     function updateClock() {
       const now = new Date();
       document.getElementById('clock').textContent =
@@ -185,66 +515,405 @@
     setInterval(updateClock, 1000);
     updateClock();
 
-    // Get initials from name
+    // =========================================================================
+    // Staff Presence
+    // =========================================================================
+    // Staff avatar mapping (email -> image URL) - loaded from backend
+    let STAFF_AVATARS = {};
+
+    async function loadAvatarMappings() {
+      try {
+        const res = await fetch(`${API_BASE}/api/avatars`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        const data = await res.json();
+        STAFF_AVATARS = data.mappings || {};
+        console.log(`Loaded ${Object.keys(STAFF_AVATARS).length} avatar mappings`);
+      } catch (error) {
+        console.error('Failed to load avatar mappings:', error);
+      }
+    }
+
     function getInitials(name) {
       return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
     }
 
-    // Format time since
     function formatArrival(timestamp) {
       if (!timestamp) return '';
       const date = new Date(timestamp);
-      return `Since ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      return `since ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
     }
 
-    // Fetch presence
     async function updatePresence() {
       try {
-        const res = await fetch(`${API_BASE}/api/presence`);
+        const res = await fetch(`${API_BASE}/api/presence`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
         const data = await res.json();
-        const present = Array.isArray(data) ? data.filter(p => p.status === 'in') : [];
+        // Handle both formats: { users: [...] } and direct array
+        const users = data.users || data;
+        const present = Array.isArray(users) ? users.filter(p => p.status === 'in') : [];
 
-        const container = document.getElementById('presence-list');
+        const container = document.getElementById('staff-grid');
         if (present.length === 0) {
           container.innerHTML = '<div class="empty-state">No one in the office yet</div>';
           return;
         }
 
-        container.innerHTML = present.map(p => `
-          <div class="person">
-            <div class="avatar">${getInitials(p.user_name || p.user_email || '?')}</div>
-            <div class="person-info">
-              <div class="person-name">${p.user_name || p.user_email || 'Unknown'}</div>
-              <div class="person-time">${formatArrival(p.checked_in_at)}</div>
+        container.innerHTML = present.map(p => {
+          const name = p.user_name || p.user_email?.split('@')[0] || 'Unknown';
+          const initials = getInitials(name);
+          const email = (p.user_email || '').toLowerCase();
+          // First check cached avatar, then try avatar_url from user record
+          const avatarUrl = STAFF_AVATARS[email] || p.avatar_url;
+          const avatarContent = avatarUrl
+            ? `<img src="${avatarUrl}" alt="${name}" onerror="this.parentElement.textContent='${initials}'">`
+            : initials;
+
+          return `
+            <div class="staff-card">
+              <div class="staff-avatar">${avatarContent}</div>
+              <div class="staff-info">
+                <div class="name">${name}</div>
+                <div class="time">${formatArrival(p.checked_in_at)}</div>
+              </div>
             </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       } catch (error) {
         console.error('Presence error:', error);
       }
     }
 
-    // Fetch frame queue counts
-    async function updateFrames() {
-      try {
-        const res = await fetch(`${API_BASE}/api/queue`);
-        const data = await res.json();
+    // =========================================================================
+    // QR Code
+    // =========================================================================
+    let qrCode = null;
+    let qrExpiresAt = null;
 
-        for (let i = 1; i <= 4; i++) {
-          const queue = data.frameQueues?.[i] || [];
-          document.getElementById(`frame${i}-count`).textContent =
-            `${queue.length} items`;
-        }
+    async function refreshQR() {
+      try {
+        const res = await fetch(`${API_BASE}/api/kiosk/token/${KIOSK_ID}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        if (!res.ok) throw new Error('Failed to get token');
+
+        const data = await res.json();
+        qrExpiresAt = new Date(data.expiresAt);
+
+        const qrUrl = `${window.location.origin}${data.qrData}`;
+        const container = document.getElementById('qrcode');
+        container.innerHTML = '';
+
+        qrCode = new QRCode(container, {
+          text: qrUrl,
+          width: 180,
+          height: 180,
+          colorDark: '#000000',
+          colorLight: '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+
+        document.getElementById('backup-code').textContent =
+          data.token.slice(-6).toUpperCase();
+
+        updateQRTimer();
       } catch (error) {
-        console.error('Frames error:', error);
+        console.error('QR error:', error);
+        document.getElementById('qrcode').innerHTML =
+          '<div class="empty-state">Unable to load QR</div>';
       }
     }
 
-    // Initial load and intervals
-    updatePresence();
-    updateFrames();
-    setInterval(updatePresence, 10000);
-    setInterval(updateFrames, 30000);
+    function updateQRTimer() {
+      if (!qrExpiresAt) return;
+      const remaining = Math.max(0, Math.ceil((qrExpiresAt - Date.now()) / 1000));
+      document.getElementById('qr-refresh').textContent = `Refreshes in ${remaining}s`;
+    }
+    setInterval(updateQRTimer, 1000);
+
+    // =========================================================================
+    // Trains
+    // =========================================================================
+    async function updateTrains() {
+      try {
+        const res = await fetch(`${API_BASE}/api/trains`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        const data = await res.json();
+
+        const nextContainer = document.getElementById('train-next');
+        const listContainer = document.getElementById('train-list');
+
+        if (!data.next) {
+          nextContainer.innerHTML = `
+            <div class="train-next-time">--</div>
+            <div class="train-next-dest">No trains scheduled</div>
+          `;
+          listContainer.innerHTML = '';
+          return;
+        }
+
+        nextContainer.innerHTML = `
+          <div class="train-next-time">${data.nextMinutes}</div>
+          <div class="train-next-dest">${data.next.departureTimeFormatted} → ${data.next.destination}</div>
+        `;
+
+        // Show remaining trains
+        const remaining = data.predictions.slice(1, 5);
+        listContainer.innerHTML = remaining.map(t => `
+          <div class="train-item">
+            <span class="time">${t.departureTimeFormatted}</span>
+            <span class="dest">→ ${t.destination}</span>
+          </div>
+        `).join('');
+      } catch (error) {
+        console.error('Trains error:', error);
+      }
+    }
+
+    // =========================================================================
+    // Announcements
+    // =========================================================================
+    async function updateAnnouncements() {
+      try {
+        const res = await fetch(`${API_BASE}/api/announcements`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        const data = await res.json();
+
+        // Handle alert banner
+        const alertBanner = document.getElementById('alert-banner');
+        if (data.alert) {
+          alertBanner.textContent = data.alert.title + (data.alert.message ? ': ' + data.alert.message : '');
+          alertBanner.classList.add('show');
+        } else {
+          alertBanner.classList.remove('show');
+        }
+
+        // Handle announcements list
+        const container = document.getElementById('announcement-list');
+        const announcements = data.announcements.filter(a => a.type !== 'alert').slice(0, 4);
+
+        if (announcements.length === 0) {
+          container.innerHTML = '<div class="empty-state">No announcements</div>';
+          return;
+        }
+
+        container.innerHTML = announcements.map(a => `
+          <div class="announcement-item ${a.type}">
+            <div class="announcement-title">${a.title}</div>
+            ${a.message ? `<div class="announcement-message">${a.message}</div>` : ''}
+          </div>
+        `).join('');
+      } catch (error) {
+        console.error('Announcements error:', error);
+      }
+    }
+
+    // =========================================================================
+    // Events (Google Calendar integration)
+    // =========================================================================
+    function formatEventTime(startTime, endTime, isAllDay) {
+      if (isAllDay) return 'All day';
+      const start = new Date(startTime);
+      return start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    }
+
+    async function updateEvents() {
+      try {
+        const res = await fetch(`${API_BASE}/api/calendar/events`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        const data = await res.json();
+        const container = document.getElementById('event-list');
+
+        if (!data.events || data.events.length === 0) {
+          container.innerHTML = data.configured
+            ? '<div class="empty-state">No upcoming events today</div>'
+            : '<div class="empty-state">Calendar integration pending setup</div>';
+          return;
+        }
+
+        // Show up to 5 events
+        const events = data.events.slice(0, 5);
+        container.innerHTML = events.map(event => `
+          <div class="event-item">
+            <div class="event-time">${formatEventTime(event.startTime, event.endTime, event.isAllDay)}</div>
+            <div class="event-details">
+              <div class="event-title">${event.title}</div>
+              <div class="event-room">${event.room}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (error) {
+        console.error('Events error:', error);
+        document.getElementById('event-list').innerHTML =
+          '<div class="empty-state">Unable to load events</div>';
+      }
+    }
+
+    // =========================================================================
+    // Who's Where Map
+    // =========================================================================
+    let mapLoaded = false;
+
+    async function loadMap() {
+      const mapContainer = document.getElementById('map-container');
+
+      try {
+        // Load the office map SVG
+        const res = await fetch(`${API_BASE}/office-map.svg`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        const svgText = await res.text();
+
+        mapContainer.innerHTML = `
+          <div class="map-wrapper" style="position: relative;">
+            ${svgText}
+            <div class="people-overlay" id="people-overlay"></div>
+          </div>
+        `;
+
+        // Style the SVG
+        const svg = mapContainer.querySelector('svg');
+        if (svg) {
+          svg.style.width = '100%';
+          svg.style.height = 'auto';
+          svg.style.maxHeight = '280px';
+        }
+
+        mapLoaded = true;
+        await updateMapPeople();
+      } catch (error) {
+        console.error('Map error:', error);
+        mapContainer.innerHTML = `
+          <div class="empty-state" style="text-align: center; padding: 2rem;">
+            <div style="font-size: 0.9rem; margin-bottom: 0.5rem;">Office Map</div>
+            <div style="font-size: 0.75rem; color: var(--cc-gray-dark);">
+              Unable to load map
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    async function updateMapPeople() {
+      if (!mapLoaded) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/map/people`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        const data = await res.json();
+
+        const overlay = document.getElementById('people-overlay');
+        const untrackedSection = document.getElementById('untracked-section');
+        const untrackedPeople = document.getElementById('untracked-people');
+
+        if (!overlay) return;
+
+        // Render located people as markers on the map
+        overlay.innerHTML = data.located.map(person => {
+          const name = person.user_name || person.user_email?.split('@')[0] || '?';
+          const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+          const email = (person.user_email || '').toLowerCase();
+          const avatarUrl = STAFF_AVATARS[email] || person.avatar_url;
+
+          return `
+            <div class="map-person" style="left: ${person.position.x}%; top: ${person.position.y}%;" title="${name} - ${person.room}">
+              <div class="map-person-icon" style="background: ${person.roomColor || '#0693e3'};">
+                ${avatarUrl
+                  ? `<img src="${avatarUrl}" alt="${initials}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.parentElement.textContent='${initials}'">`
+                  : `<span style="color:white;font-size:10px;font-weight:bold;">${initials}</span>`
+                }
+              </div>
+              <div class="map-person-label">${name.split(' ')[0]}</div>
+            </div>
+          `;
+        }).join('');
+
+        // Render unlocated people in the list below
+        if (data.unlocated.length > 0) {
+          untrackedSection.style.display = 'block';
+          untrackedPeople.innerHTML = data.unlocated.map(person => {
+            const name = person.user_name || person.user_email?.split('@')[0] || 'Unknown';
+            return `<span class="untracked-person">${name}</span>`;
+          }).join('');
+        } else {
+          untrackedSection.style.display = 'none';
+        }
+      } catch (error) {
+        console.error('Map people error:', error);
+      }
+    }
+
+    // =========================================================================
+    // Server-Sent Events for Real-Time Updates
+    // =========================================================================
+    let eventSource = null;
+
+    function connectSSE() {
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      eventSource = new EventSource(`${API_BASE}/api/events`);
+
+      eventSource.addEventListener('checkin', (event) => {
+        console.log('SSE: checkin event received');
+        // Immediately update presence and map
+        updatePresence();
+        updateMapPeople();
+      });
+
+      eventSource.addEventListener('checkout', (event) => {
+        console.log('SSE: checkout event received');
+        // Immediately update presence and map
+        updatePresence();
+        updateMapPeople();
+      });
+
+      eventSource.addEventListener('connected', (event) => {
+        console.log('SSE connected:', event.data);
+      });
+
+      eventSource.addEventListener('error', (event) => {
+        console.error('SSE error, reconnecting in 5s...', event);
+        eventSource.close();
+        setTimeout(connectSSE, 5000);
+      });
+    }
+
+    // =========================================================================
+    // Initialize
+    // =========================================================================
+    async function initialize() {
+      // Load avatar mappings first
+      await loadAvatarMappings();
+
+      // Then load all data
+      updatePresence();
+      refreshQR();
+      updateTrains();
+      updateAnnouncements();
+      updateEvents();
+      loadMap();
+
+      // Connect to SSE for real-time updates
+      connectSSE();
+    }
+
+    initialize();
+
+    // Refresh intervals (SSE will handle presence updates immediately, but keep polling as fallback)
+    setInterval(updatePresence, 30000);          // 30 seconds (reduced, SSE handles most updates)
+    setInterval(refreshQR, 30000);               // 30 seconds
+    setInterval(updateTrains, 60000);            // 1 minute
+    setInterval(updateAnnouncements, 30000);     // 30 seconds
+    setInterval(updateEvents, 60000);            // 1 minute
+    setInterval(loadAvatarMappings, 300000);     // 5 minutes - reload avatar mappings
+    setInterval(updateMapPeople, 30000);         // 30 seconds (reduced, SSE handles most updates)
   </script>
 </body>
 </html>

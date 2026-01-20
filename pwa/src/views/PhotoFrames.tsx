@@ -47,7 +47,7 @@ export default function PhotoFrames() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <h1 className="text-xl font-bold font-museo">Cafe Screens</h1>
+          <h1 className="text-xl font-black font-museo">Cafe Screens</h1>
           <div className="w-10" />
         </div>
       </header>

@@ -93,7 +93,7 @@ export default function Dashboard() {
         {/* Presence Status Card */}
         <Link to="/whos-in" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 font-museo">Who's In</h2>
+            <h2 className="text-lg font-black text-gray-900 font-museo">Who's In</h2>
             <span className="bg-concord-green/20 text-concord-green px-3 py-1 rounded-full text-sm font-medium">
               {presentCount} {presentCount === 1 ? 'person' : 'people'}
             </span>
@@ -145,7 +145,7 @@ export default function Dashboard() {
         {/* Now Playing Card */}
         <Link to="/music" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 font-museo">Now Playing</h2>
+            <h2 className="text-lg font-black text-gray-900 font-museo">Now Playing</h2>
             {musicQueue.length > 0 && (
               <span className="bg-concord-orange/20 text-concord-orange px-2 py-1 rounded-full text-xs font-medium">
                 {musicQueue.length} queued
@@ -199,7 +199,7 @@ export default function Dashboard() {
         {/* Sand Table Card */}
         <Link to="/sand" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 font-museo">Sand Table</h2>
+            <h2 className="text-lg font-black text-gray-900 font-museo">Sand Table</h2>
             {patternQueue.length > 0 && (
               <span className="bg-concord-mango/20 text-concord-orange px-2 py-1 rounded-full text-xs font-medium">
                 {patternQueue.length} queued
@@ -266,7 +266,7 @@ export default function Dashboard() {
         {/* Cafe Screens Card */}
         <Link to="/photos" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900 font-museo">Cafe Screens</h2>
+            <h2 className="text-lg font-black text-gray-900 font-museo">Cafe Screens</h2>
             <span className="bg-concord-teal/20 text-concord-teal px-2 py-1 rounded-full text-xs font-medium">
               {frames.filter(f => f.isOnline).length}/{frames.length || 4} online
             </span>

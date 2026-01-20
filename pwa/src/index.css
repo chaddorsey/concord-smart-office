@@ -2,6 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  /* Base typography with Museo fonts */
+  html {
+    font-family: 'museo-sans', system-ui, sans-serif;
+  }
+
+  /* Main headers use Museo 900 */
+  h1 {
+    font-family: 'museo', Georgia, serif;
+    font-weight: 900;
+  }
+
+  /* Section headers use Museo Sans 900 */
+  h2, h3 {
+    font-family: 'museo-sans', system-ui, sans-serif;
+    font-weight: 900;
+  }
+
+  /* Minor headers use Museo Sans 700 */
+  h4, h5, h6 {
+    font-family: 'museo-sans', system-ui, sans-serif;
+    font-weight: 700;
+  }
+}
+
 body {
   margin: 0;
   min-height: 100vh;

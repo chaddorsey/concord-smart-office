@@ -42,7 +42,7 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-blue-900 to-blue-700 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Smart Office</h1>
+          <h1 className="text-3xl font-black text-gray-900 font-museo">Smart Office</h1>
           <p className="text-gray-600 mt-2">Sign in to continue</p>
         </div>
 

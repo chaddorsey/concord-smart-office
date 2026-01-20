@@ -254,9 +254,44 @@
       setTimeout(() => overlay.classList.remove('show'), 5000);
     }
 
+    // Connect to SSE for real-time check-in notifications
+    let eventSource = null;
+
+    function connectSSE() {
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      eventSource = new EventSource(`${API_BASE}/api/events`);
+
+      eventSource.addEventListener('checkin', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const userName = data.data?.user_name || 'Someone';
+          const firstName = userName.split(' ')[0];
+          showWelcome(firstName);
+          // Also refresh presence count
+          updatePresenceCount();
+        } catch (err) {
+          console.error('Failed to parse checkin event:', err);
+        }
+      });
+
+      eventSource.addEventListener('connected', (event) => {
+        console.log('SSE connected:', event.data);
+      });
+
+      eventSource.addEventListener('error', (event) => {
+        console.error('SSE error, reconnecting in 5s...', event);
+        eventSource.close();
+        setTimeout(connectSSE, 5000);
+      });
+    }
+
     // Initial load and intervals
     refreshToken();
     updatePresenceCount();
+    connectSSE();
     setInterval(refreshToken, REFRESH_INTERVAL);
     setInterval(updatePresenceCount, 10000);
   </script>
