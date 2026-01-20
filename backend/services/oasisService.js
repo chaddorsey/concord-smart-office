@@ -649,6 +649,144 @@ function recordLedChange() {
 }
 
 // ----------------------------------------------------------------------------
+// Mock Patterns for Development
+// ----------------------------------------------------------------------------
+
+/**
+ * Seed mock patterns for development when HA isn't available
+ * These match the categories defined in the PWA for auto-categorization
+ */
+const MOCK_PATTERNS = [
+  // Animals
+  { id: 'cat', name: 'Cat' },
+  { id: 'dragon', name: 'Dragon' },
+  { id: 'butterfly', name: 'Butterfly' },
+  { id: 'koi-fish', name: 'Koi Fish' },
+  { id: 'owl', name: 'Owl' },
+  { id: 'dolphin', name: 'Dolphin' },
+  { id: 'wolf', name: 'Wolf' },
+  { id: 'phoenix', name: 'Phoenix Bird' },
+  { id: 'turtle', name: 'Sea Turtle' },
+  { id: 'seahorse', name: 'Seahorse' },
+  { id: 'jellyfish', name: 'Jellyfish' },
+  { id: 'octopus', name: 'Octopus' },
+
+  // Nature
+  { id: 'lotus-flower', name: 'Lotus Flower' },
+  { id: 'rose', name: 'Rose' },
+  { id: 'tree-of-life', name: 'Tree of Life' },
+  { id: 'mountain-sunset', name: 'Mountain Sunset' },
+  { id: 'ocean-wave', name: 'Ocean Wave' },
+  { id: 'bamboo', name: 'Bamboo Forest' },
+  { id: 'aurora', name: 'Aurora Borealis' },
+  { id: 'sun-moon', name: 'Sun and Moon' },
+  { id: 'garden', name: 'Zen Garden' },
+  { id: 'leaf', name: 'Autumn Leaf' },
+
+  // Shapes & Spirals
+  { id: 'spiral-1', name: 'Classic Spiral' },
+  { id: 'spiral-fibonacci', name: 'Fibonacci Spiral' },
+  { id: 'mandala-1', name: 'Mandala' },
+  { id: 'mandala-lotus', name: 'Lotus Mandala' },
+  { id: 'star-burst', name: 'Star Burst' },
+  { id: 'heart', name: 'Heart' },
+  { id: 'geometric-1', name: 'Geometric Pattern' },
+  { id: 'hexagon', name: 'Hexagon Grid' },
+  { id: 'kaleidoscope', name: 'Kaleidoscope' },
+  { id: 'spirograph-1', name: 'Spirograph' },
+  { id: 'fractal-1', name: 'Fractal Tree' },
+  { id: 'tessellation', name: 'Tessellation' },
+
+  // Holidays
+  { id: 'christmas-tree', name: 'Christmas Tree' },
+  { id: 'snowflake', name: 'Snowflake' },
+  { id: 'halloween-pumpkin', name: 'Halloween Pumpkin' },
+  { id: 'valentine-heart', name: 'Valentine Heart' },
+  { id: 'easter-egg', name: 'Easter Egg' },
+  { id: 'fireworks', name: 'Fireworks' },
+
+  // Abstract
+  { id: 'zen-circles', name: 'Zen Circles' },
+  { id: 'abstract-flow', name: 'Abstract Flow' },
+  { id: 'wave-pattern', name: 'Wave Pattern' },
+  { id: 'minimal-1', name: 'Minimal Lines' },
+  { id: 'swirl', name: 'Swirl' },
+  { id: 'dizzy', name: 'Dizzy Spiral' },
+
+  // Celtic & Tribal
+  { id: 'celtic-knot', name: 'Celtic Knot' },
+  { id: 'celtic-trinity', name: 'Celtic Trinity' },
+  { id: 'tribal-sun', name: 'Tribal Sun' },
+  { id: 'viking-rune', name: 'Viking Rune' },
+  { id: 'aztec', name: 'Aztec Pattern' },
+
+  // Additional popular patterns
+  { id: 'yin-yang', name: 'Yin Yang' },
+  { id: 'infinity', name: 'Infinity' },
+  { id: 'labyrinth', name: 'Labyrinth' },
+  { id: 'compass', name: 'Compass Rose' },
+  { id: 'galaxy', name: 'Galaxy Spiral' },
+  { id: 'dna', name: 'DNA Helix' },
+];
+
+/**
+ * Seed mock patterns if database is empty
+ * @returns {number} Number of patterns seeded
+ */
+function seedMockPatterns() {
+  console.log('[Oasis] Seeding mock patterns for development...');
+  for (const pattern of MOCK_PATTERNS) {
+    db.cacheOasisPattern({
+      id: pattern.id,
+      name: pattern.name,
+      thumbnailUrl: null, // No thumbnails for mock patterns
+      durationSeconds: Math.floor(Math.random() * 300) + 120 // Random 2-7 minutes
+    });
+  }
+  console.log(`[Oasis] Seeded ${MOCK_PATTERNS.length} mock patterns`);
+  return MOCK_PATTERNS.length;
+}
+
+/**
+ * Initialize patterns - try HA first, fall back to mock patterns
+ * Called on server startup
+ */
+async function initializePatterns() {
+  const existing = db.getOasisPatterns();
+  if (existing.length > 0) {
+    console.log(`[Oasis] ${existing.length} patterns already cached`);
+    return existing.length;
+  }
+
+  // Try to fetch from HA first
+  if (HA_TOKEN) {
+    console.log('[Oasis] Attempting to fetch patterns from Home Assistant...');
+    try {
+      const patterns = await fetchPatternsFromHA();
+      if (patterns && patterns.length > 0) {
+        console.log(`[Oasis] Successfully cached ${patterns.length} patterns from HA`);
+        return patterns.length;
+      }
+    } catch (error) {
+      console.log('[Oasis] HA fetch failed:', error.message);
+    }
+  } else {
+    console.log('[Oasis] HA_TOKEN not configured, skipping HA fetch');
+  }
+
+  // Fall back to mock patterns for development
+  console.log('[Oasis] Falling back to mock patterns for development');
+  return seedMockPatterns();
+}
+
+/**
+ * Get total pattern count
+ */
+function getPatternCount() {
+  return db.getOasisPatterns().length;
+}
+
+// ----------------------------------------------------------------------------
 // Status
 // ----------------------------------------------------------------------------
 
@@ -733,6 +871,12 @@ module.exports = {
 
   // Status
   getStatus,
+
+  // Mock patterns / initialization
+  initializePatterns,
+  seedMockPatterns,
+  getPatternCount,
+  MOCK_PATTERNS,
 
   // Constants
   LED_EFFECTS

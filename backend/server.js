@@ -18,13 +18,23 @@ const path = require('path');
 
 // Import database layer
 const db = require('./db');
+const EventEmitter = require('events');
 
 // Import services
 const authService = require('./services/authService');
 const kioskService = require('./services/kioskService');
+const presenceService = require('./services/presenceService');
 
-// Note: presenceService uses ES modules, we'll import it dynamically or use db directly
-// For now, we'll implement presence routes using db functions directly
+// ============================================================================
+// Server-Sent Events (SSE) for Real-Time Notifications
+// ============================================================================
+
+// Event emitter for broadcasting events to connected clients
+const eventBus = new EventEmitter();
+eventBus.setMaxListeners(100); // Support many concurrent kiosk connections
+
+// Connected SSE clients
+const sseClients = new Set();
 
 // Environment configuration
 const PORT = process.env.PORT || 3001;
@@ -47,6 +57,11 @@ const app = express();
 // ============================================================================
 
 db.initDatabase();
+
+// Initialize custom patterns table (for pattern creator feature)
+const customPatternServiceInit = require('./services/customPatternService');
+customPatternServiceInit.initCustomPatternsTable();
+
 console.log('Database initialized');
 
 // ============================================================================
@@ -531,21 +546,18 @@ app.post('/api/presence/checkin', authService.requireAuth, async (req, res) => {
       }
     }
 
-    // Update presence state
-    const timestamp = new Date().toISOString();
-    const presence = db.setPresenceState(userId, {
-      status: 'in',
-      checked_in_at: timestamp,
-      room_id: room_id || kioskId || null
-    });
+    // Use presenceService to check in (handles DB + HA webhook)
+    const effectiveRoomId = room_id || kioskId || null;
+    const presence = await presenceService.checkIn(userId, source, effectiveRoomId);
 
-    // Create presence event
-    db.createPresenceEvent({
+    // Broadcast check-in event for real-time updates (kiosk welcome, dashboard refresh)
+    broadcastEvent('checkin', {
       user_id: userId,
-      type: 'check_in',
-      source: source,
-      room_id: room_id || kioskId || null,
-      timestamp: timestamp
+      user_name: req.user.name || req.user.email,
+      user_email: req.user.email,
+      avatar_url: req.user.avatarUrl,
+      room_id: effectiveRoomId,
+      source: source
     });
 
     res.json({
@@ -564,25 +576,20 @@ app.post('/api/presence/checkin', authService.requireAuth, async (req, res) => {
 });
 
 // POST /api/presence/checkout - Check out (requires auth)
-app.post('/api/presence/checkout', authService.requireAuth, (req, res) => {
+app.post('/api/presence/checkout', authService.requireAuth, async (req, res) => {
   try {
     const { source = 'manual' } = req.body;
     const userId = req.user.id;
-    const timestamp = new Date().toISOString();
 
-    // Update presence state
-    const presence = db.setPresenceState(userId, {
-      status: 'out',
-      checked_in_at: null,
-      room_id: null
-    });
+    // Use presenceService to check out (handles DB + HA webhook)
+    const presence = await presenceService.checkOut(userId, source);
 
-    // Create presence event
-    db.createPresenceEvent({
+    // Broadcast check-out event for real-time updates (dashboard refresh)
+    broadcastEvent('checkout', {
       user_id: userId,
-      type: 'check_out',
-      source: source,
-      timestamp: timestamp
+      user_name: req.user.name || req.user.email,
+      user_email: req.user.email,
+      source: source
     });
 
     res.json({
@@ -718,20 +725,17 @@ app.get('/tap/:kioskId', async (req, res) => {
       return res.redirect(`${PWA_URL}/dashboard?error=${encodeURIComponent(validation.error)}`);
     }
 
-    // Check user in
-    const timestamp = new Date().toISOString();
-    db.setPresenceState(req.user.id, {
-      status: 'in',
-      checked_in_at: timestamp,
-      room_id: kioskId
-    });
+    // Check user in using presenceService (handles DB + HA webhook)
+    await presenceService.checkIn(req.user.id, 'qr', kioskId);
 
-    db.createPresenceEvent({
+    // Broadcast check-in event for real-time updates (kiosk welcome, dashboard refresh)
+    broadcastEvent('checkin', {
       user_id: req.user.id,
-      type: 'check_in',
-      source: 'qr',
+      user_name: req.user.name || req.user.email,
+      user_email: req.user.email,
+      avatar_url: req.user.avatarUrl,
       room_id: kioskId,
-      timestamp: timestamp
+      source: 'qr'
     });
 
     // Redirect to PWA dashboard with success
@@ -1581,6 +1585,11 @@ app.post('/api/music/scheduler/force-play', authService.requireAuth, async (req,
 
 const oasisService = require('./services/oasisService');
 
+// Initialize patterns - tries HA first, falls back to mock patterns for development
+oasisService.initializePatterns().catch(err => {
+  console.error('[Oasis] Pattern initialization failed:', err.message);
+});
+
 // Get available patterns
 app.get('/api/oasis/patterns', (req, res) => {
   try {
@@ -1838,14 +1847,30 @@ app.get('/api/oasis/ha/status', async (req, res) => {
   }
 });
 
-// Fetch patterns from Home Assistant (browse_media)
+// Fetch patterns from Home Assistant (browse_media) and cache them
 app.get('/api/oasis/ha/patterns', async (req, res) => {
   try {
     const patterns = await oasisService.fetchPatternsFromHA();
-    res.json({ patterns });
+    res.json({ patterns, count: patterns.length, source: 'home_assistant' });
   } catch (error) {
     console.error('[Oasis] Failed to fetch patterns from HA:', error);
-    res.status(500).json({ error: error.message, patterns: [] });
+    res.status(500).json({ error: error.message, patterns: [], source: 'error' });
+  }
+});
+
+// Force refresh patterns from HA (re-fetches and updates cache)
+app.post('/api/oasis/ha/patterns/refresh', authService.requireAuth, async (req, res) => {
+  try {
+    console.log('[Oasis] Force refreshing patterns from HA...');
+    const patterns = await oasisService.fetchPatternsFromHA();
+    res.json({
+      success: true,
+      count: patterns.length,
+      message: `Refreshed ${patterns.length} patterns from Home Assistant`
+    });
+  } catch (error) {
+    console.error('[Oasis] Failed to refresh patterns from HA:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -1928,6 +1953,647 @@ app.post('/api/oasis/ha/playlist', authService.requireAuth, async (req, res) => 
 });
 
 // ============================================================================
+// Custom Pattern Creator API Routes
+// ============================================================================
+
+const customPatternService = require('./services/customPatternService');
+
+// Get public custom patterns
+app.get('/api/oasis/custom-patterns', (req, res) => {
+  try {
+    const { limit, offset } = req.query;
+    const patterns = customPatternService.getPublicCustomPatterns({
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+    res.json({ patterns });
+  } catch (error) {
+    console.error('[CustomPatterns] Failed to get patterns:', error);
+    res.status(500).json({ error: error.message, patterns: [] });
+  }
+});
+
+// Get current user's custom patterns
+app.get('/api/oasis/custom-patterns/mine', authService.requireAuth, (req, res) => {
+  try {
+    const patterns = customPatternService.getUserCustomPatterns(req.user.id);
+    res.json({ patterns });
+  } catch (error) {
+    console.error('[CustomPatterns] Failed to get user patterns:', error);
+    res.status(500).json({ error: error.message, patterns: [] });
+  }
+});
+
+// Get a specific custom pattern
+app.get('/api/oasis/custom-patterns/:id', (req, res) => {
+  try {
+    const pattern = customPatternService.getCustomPatternById(req.params.id);
+    if (!pattern) {
+      return res.status(404).json({ error: 'Pattern not found' });
+    }
+    res.json(pattern);
+  } catch (error) {
+    console.error('[CustomPatterns] Failed to get pattern:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create a new custom pattern
+app.post('/api/oasis/custom-patterns', requireAuthOrDemo, async (req, res) => {
+  try {
+    const { name, thetaRhoData, previewSvg, config } = req.body;
+
+    if (!name || !thetaRhoData) {
+      return res.status(400).json({ error: 'name and thetaRhoData are required' });
+    }
+
+    const pattern = await customPatternService.saveCustomPattern({
+      name,
+      thetaRhoData,
+      previewSvg,
+      config,
+      createdByUserId: req.user?.id || 1 // Demo user fallback
+    });
+
+    res.status(201).json(pattern);
+  } catch (error) {
+    console.error('[CustomPatterns] Failed to create pattern:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Delete a custom pattern (owner only)
+app.delete('/api/oasis/custom-patterns/:id', authService.requireAuth, async (req, res) => {
+  try {
+    const deleted = await customPatternService.deleteCustomPattern(req.params.id, req.user.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Pattern not found or not yours' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[CustomPatterns] Failed to delete pattern:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Submit a custom pattern to the queue
+app.post('/api/oasis/custom-patterns/:id/submit', requireAuthOrDemo, (req, res) => {
+  try {
+    const submission = customPatternService.submitCustomPatternToQueue(
+      req.params.id,
+      req.user?.id || 1
+    );
+    res.status(201).json(submission);
+  } catch (error) {
+    console.error('[CustomPatterns] Failed to submit pattern:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// MBTA Train Schedule API Routes
+// ============================================================================
+
+const mbtaService = require('./services/mbtaService');
+
+// Get upcoming train predictions for Concord station
+app.get('/api/trains', async (req, res) => {
+  try {
+    const predictions = await mbtaService.getPredictions();
+    const next = predictions[0] || null;
+    res.json({
+      predictions,
+      next,
+      nextMinutes: next ? mbtaService.formatMinutesUntil(next.minutesUntil) : null,
+      stationId: mbtaService.CONCORD_STOP_ID
+    });
+  } catch (error) {
+    console.error('[MBTA] Failed to get predictions:', error);
+    res.status(500).json({ error: error.message, predictions: [] });
+  }
+});
+
+// ============================================================================
+// Announcements API Routes
+// ============================================================================
+
+const announcementService = require('./services/announcementService');
+const avatarService = require('./services/avatarService');
+const calendarService = require('./services/calendarService');
+const mapService = require('./services/mapService');
+
+// Get active announcements
+app.get('/api/announcements', (req, res) => {
+  try {
+    const announcements = announcementService.getActiveAnnouncements();
+    const alert = announcementService.getCurrentAlert();
+    res.json({ announcements, alert });
+  } catch (error) {
+    console.error('[Announcements] Failed to get announcements:', error);
+    res.status(500).json({ error: error.message, announcements: [], alert: null });
+  }
+});
+
+// Create announcement (admin)
+app.post('/api/announcements', authService.requireAuth, (req, res) => {
+  try {
+    const { title, message, type, priority, expiresAt } = req.body;
+    if (!title) {
+      return res.status(400).json({ error: 'title is required' });
+    }
+    const announcement = announcementService.createAnnouncement({
+      title,
+      message,
+      type: type || 'info',
+      priority: priority || 0,
+      expiresAt,
+      createdByUserId: req.user?.id
+    });
+    res.status(201).json(announcement);
+  } catch (error) {
+    console.error('[Announcements] Failed to create announcement:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update announcement (admin)
+app.put('/api/announcements/:id', authService.requireAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, message, type, priority, expiresAt } = req.body;
+    const announcement = announcementService.updateAnnouncement(parseInt(id), {
+      title, message, type, priority, expiresAt
+    });
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement not found' });
+    }
+    res.json(announcement);
+  } catch (error) {
+    console.error('[Announcements] Failed to update announcement:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete announcement (admin)
+app.delete('/api/announcements/:id', authService.requireAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = announcementService.deleteAnnouncement(parseInt(id));
+    if (!success) {
+      return res.status(404).json({ error: 'Announcement not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Announcements] Failed to delete announcement:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Dismiss all alerts
+app.post('/api/announcements/dismiss-alerts', authService.requireAuth, (req, res) => {
+  try {
+    const count = announcementService.dismissAllAlerts();
+    res.json({ success: true, dismissed: count });
+  } catch (error) {
+    console.error('[Announcements] Failed to dismiss alerts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Avatar API Routes
+// ============================================================================
+
+// Get avatar URL for a user by email
+app.get('/api/avatars/:email', (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    const avatarUrl = avatarService.getAvatarUrl(email);
+    res.json({ email, avatarUrl });
+  } catch (error) {
+    console.error('[Avatar] Failed to get avatar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all avatar mappings
+app.get('/api/avatars', (req, res) => {
+  try {
+    const mappings = avatarService.getAllMappings();
+    res.json({ mappings });
+  } catch (error) {
+    console.error('[Avatar] Failed to get mappings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Set avatar mapping (admin)
+app.post('/api/avatars', authService.requireAuth, (req, res) => {
+  try {
+    const { email, avatarUrl } = req.body;
+    if (!email || !avatarUrl) {
+      return res.status(400).json({ error: 'email and avatarUrl are required' });
+    }
+    avatarService.setAvatarMapping(email, avatarUrl);
+    res.json({ success: true, email, avatarUrl });
+  } catch (error) {
+    console.error('[Avatar] Failed to set mapping:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cache avatar from external URL
+app.post('/api/avatars/cache', authService.requireAuth, async (req, res) => {
+  try {
+    const { email, sourceUrl, name } = req.body;
+    if (!email || !sourceUrl) {
+      return res.status(400).json({ error: 'email and sourceUrl are required' });
+    }
+    const avatarUrl = await avatarService.cacheAvatar(email, sourceUrl, name);
+    res.json({ success: true, email, avatarUrl });
+  } catch (error) {
+    console.error('[Avatar] Failed to cache avatar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generate initials avatar
+app.post('/api/avatars/generate', authService.requireAuth, (req, res) => {
+  try {
+    const { email, name } = req.body;
+    if (!email || !name) {
+      return res.status(400).json({ error: 'email and name are required' });
+    }
+    const avatarUrl = avatarService.generateInitialsAvatar(email, name);
+    res.json({ success: true, email, avatarUrl });
+  } catch (error) {
+    console.error('[Avatar] Failed to generate avatar:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Bulk import avatars
+app.post('/api/avatars/bulk-import', authService.requireAuth, async (req, res) => {
+  try {
+    const { users } = req.body;
+    if (!Array.isArray(users)) {
+      return res.status(400).json({ error: 'users must be an array' });
+    }
+    const results = await avatarService.bulkImportAvatars(users);
+    res.json(results);
+  } catch (error) {
+    console.error('[Avatar] Failed to bulk import:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete avatar mapping
+app.delete('/api/avatars/:email', authService.requireAuth, (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    const deleted = avatarService.deleteMapping(email);
+    res.json({ success: deleted });
+  } catch (error) {
+    console.error('[Avatar] Failed to delete mapping:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Calendar API Routes
+// ============================================================================
+
+// Get upcoming events from all room calendars
+app.get('/api/calendar/events', async (req, res) => {
+  try {
+    const events = await calendarService.getUpcomingEvents();
+    res.json({
+      events,
+      configured: calendarService.isConfigured(),
+      rooms: calendarService.getConfiguredRooms()
+    });
+  } catch (error) {
+    console.error('[Calendar] Failed to get events:', error);
+    res.status(500).json({ error: error.message, events: [] });
+  }
+});
+
+// Get events for a specific room
+app.get('/api/calendar/room/:roomName', async (req, res) => {
+  try {
+    const roomName = decodeURIComponent(req.params.roomName);
+    const events = await calendarService.getRoomEvents(roomName);
+    res.json({ events, room: roomName });
+  } catch (error) {
+    console.error('[Calendar] Failed to get room events:', error);
+    res.status(500).json({ error: error.message, events: [] });
+  }
+});
+
+// Get next event for each room
+app.get('/api/calendar/next-by-room', async (req, res) => {
+  try {
+    const nextByRoom = await calendarService.getNextEventByRoom();
+    res.json(nextByRoom);
+  } catch (error) {
+    console.error('[Calendar] Failed to get next events:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check if a room is currently busy
+app.get('/api/calendar/room/:roomName/busy', async (req, res) => {
+  try {
+    const roomName = decodeURIComponent(req.params.roomName);
+    const busy = await calendarService.isRoomBusy(roomName);
+    res.json({ room: roomName, busy });
+  } catch (error) {
+    console.error('[Calendar] Failed to check room status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get configured rooms
+app.get('/api/calendar/rooms', (req, res) => {
+  try {
+    res.json({
+      rooms: calendarService.getConfiguredRooms(),
+      configured: calendarService.isConfigured()
+    });
+  } catch (error) {
+    console.error('[Calendar] Failed to get rooms:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Map API Routes (Who's Where)
+// ============================================================================
+
+// Get all room definitions
+app.get('/api/map/rooms', (req, res) => {
+  try {
+    const rooms = mapService.getAllRooms();
+    res.json({ rooms });
+  } catch (error) {
+    console.error('[Map] Failed to get rooms:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get people positions for the map overlay
+app.get('/api/map/people', (req, res) => {
+  try {
+    const present = db.getAllPresent();
+    const positions = mapService.calculatePeoplePositions(present);
+    res.json(positions);
+  } catch (error) {
+    console.error('[Map] Failed to get people positions:', error);
+    res.status(500).json({ error: error.message, located: [], unlocated: [] });
+  }
+});
+
+// Get room occupancy counts
+app.get('/api/map/occupancy', (req, res) => {
+  try {
+    const present = db.getAllPresent();
+    const occupancy = mapService.getRoomOccupancy(present);
+    res.json({ occupancy, total: present.length });
+  } catch (error) {
+    console.error('[Map] Failed to get occupancy:', error);
+    res.status(500).json({ error: error.message, occupancy: {} });
+  }
+});
+
+// ============================================================================
+// BLE Beacon Routes (/api/beacons, /api/ble)
+// ============================================================================
+
+// GET /api/beacons - List all beacons (admin)
+app.get('/api/beacons', authService.requireAuth, (req, res) => {
+  try {
+    const beacons = db.getAllBeacons();
+    res.json({ beacons });
+  } catch (error) {
+    console.error('Failed to get beacons:', error);
+    res.status(500).json({ error: 'Failed to get beacons' });
+  }
+});
+
+// GET /api/beacons/available - List unclaimed beacons
+app.get('/api/beacons/available', authService.requireAuth, (req, res) => {
+  try {
+    const beacons = db.getUnclaimedBeacons();
+    res.json({ beacons });
+  } catch (error) {
+    console.error('Failed to get unclaimed beacons:', error);
+    res.status(500).json({ error: 'Failed to get unclaimed beacons' });
+  }
+});
+
+// GET /api/beacons/mine - Get current user's beacon
+app.get('/api/beacons/mine', authService.requireAuth, (req, res) => {
+  try {
+    const beacon = db.getBeaconByUser(req.user.id);
+    res.json({ beacon: beacon || null });
+  } catch (error) {
+    console.error('Failed to get user beacon:', error);
+    res.status(500).json({ error: 'Failed to get user beacon' });
+  }
+});
+
+// POST /api/beacons/claim - Claim a beacon
+// Supports beaconId, mac_address, or beacon_uuid/major/minor
+app.post('/api/beacons/claim', authService.requireAuth, (req, res) => {
+  try {
+    const { beaconId, mac_address, beacon_uuid, major, minor } = req.body;
+
+    let beacon;
+    if (beaconId) {
+      beacon = db.getBeaconById(beaconId);
+    } else if (mac_address) {
+      beacon = db.getBeaconByMac(mac_address);
+    } else if (beacon_uuid && major !== undefined && minor !== undefined) {
+      beacon = db.getBeaconByIdentifier(beacon_uuid, major, minor);
+    } else {
+      return res.status(400).json({ error: 'Missing beaconId, mac_address, or beacon_uuid/major/minor' });
+    }
+
+    if (!beacon) {
+      return res.status(404).json({ error: 'Beacon not found' });
+    }
+
+    beacon = db.claimBeacon(beacon.id, req.user.id);
+    res.json({ success: true, beacon });
+  } catch (error) {
+    console.error('Failed to claim beacon:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/beacons/unclaim - Release claimed beacon
+app.post('/api/beacons/unclaim', authService.requireAuth, (req, res) => {
+  try {
+    const beacon = db.getBeaconByUser(req.user.id);
+    if (!beacon) {
+      return res.status(404).json({ error: 'No beacon claimed' });
+    }
+
+    const updated = db.unclaimBeacon(beacon.id, req.user.id);
+    res.json({ success: true, beacon: updated });
+  } catch (error) {
+    console.error('Failed to unclaim beacon:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/beacons/register - Admin: register new beacon
+// Supports MAC address (preferred) or iBeacon UUID/major/minor
+app.post('/api/beacons/register', authService.requireAuth, (req, res) => {
+  try {
+    const { mac_address, beacon_uuid, major, minor, friendly_name } = req.body;
+
+    if (!mac_address && !beacon_uuid) {
+      return res.status(400).json({ error: 'Either mac_address or beacon_uuid is required' });
+    }
+
+    if (beacon_uuid && (major === undefined || minor === undefined)) {
+      return res.status(400).json({ error: 'beacon_uuid requires major and minor values' });
+    }
+
+    const beacon = db.registerBeacon({
+      mac_address,
+      beacon_uuid,
+      major: major !== undefined ? parseInt(major) : null,
+      minor: minor !== undefined ? parseInt(minor) : null,
+      friendly_name
+    });
+
+    res.json({ success: true, beacon });
+  } catch (error) {
+    console.error('Failed to register beacon:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// DELETE /api/beacons/:id - Admin: delete a beacon
+app.delete('/api/beacons/:id', authService.requireAuth, (req, res) => {
+  try {
+    const beaconId = parseInt(req.params.id);
+    const deleted = db.deleteBeacon(beaconId);
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Beacon not found' });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to delete beacon:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ble/room-update - Bermuda detected room change (from HA automation)
+// Supports mac_address (preferred) or beaconIdentifier (uuid_major_minor format)
+app.post('/api/ble/room-update', (req, res) => {
+  try {
+    const { mac_address, beaconIdentifier, roomId, distance, proxyId, rssi } = req.body;
+
+    let beacon = null;
+
+    // Try MAC address first (preferred)
+    if (mac_address) {
+      beacon = db.getBeaconByMac(mac_address);
+    }
+
+    // Fall back to iBeacon identifier
+    if (!beacon && beaconIdentifier) {
+      // Parse beacon identifier (format: uuid_major_minor)
+      const parts = beaconIdentifier.split('_');
+      if (parts.length >= 3) {
+        const beacon_uuid = parts.slice(0, -2).join('_'); // UUID may contain underscores
+        const major = parseInt(parts[parts.length - 2]);
+        const minor = parseInt(parts[parts.length - 1]);
+        beacon = db.getBeaconByIdentifier(beacon_uuid, major, minor);
+      }
+    }
+
+    if (!beacon) {
+      console.log(`[BLE] Unknown beacon: mac=${mac_address}, id=${beaconIdentifier}`);
+      return res.status(404).json({ error: 'Beacon not found' });
+    }
+
+    // Update beacon location
+    db.updateBeaconLocation(beacon.id, {
+      room_id: roomId,
+      proxy_id: proxyId,
+      rssi: rssi || null,
+      distance: distance || null
+    });
+
+    // If beacon is claimed, update user's room_id in presence_state
+    if (beacon.claimed_by_user_id) {
+      const presence = db.getPresenceState(beacon.claimed_by_user_id);
+      if (presence && presence.status === 'in') {
+        db.setPresenceState(beacon.claimed_by_user_id, {
+          ...presence,
+          room_id: roomId
+        });
+
+        console.log(`[BLE] Updated room for user ${beacon.claimed_by_user_id}: ${roomId}`);
+
+        // Broadcast room update via SSE
+        broadcastEvent('room_update', {
+          user_id: beacon.claimed_by_user_id,
+          room_id: roomId,
+          beacon_id: beacon.id
+        });
+      }
+    }
+
+    res.json({ success: true, beacon_id: beacon.id, room_id: roomId });
+  } catch (error) {
+    console.error('Failed to process BLE room update:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ble/heartbeat - Periodic beacon sighting (keep-alive)
+app.post('/api/ble/heartbeat', (req, res) => {
+  try {
+    const { beaconIdentifier, proxyId, rssi, distance } = req.body;
+
+    // Parse beacon identifier
+    const parts = beaconIdentifier.split('_');
+    if (parts.length < 3) {
+      return res.status(400).json({ error: 'Invalid beacon identifier format' });
+    }
+
+    const beacon_uuid = parts.slice(0, -2).join('_');
+    const major = parseInt(parts[parts.length - 2]);
+    const minor = parseInt(parts[parts.length - 1]);
+
+    const beacon = db.getBeaconByIdentifier(beacon_uuid, major, minor);
+    if (!beacon) {
+      return res.status(404).json({ error: 'Beacon not found' });
+    }
+
+    // Just update last_seen_at and optionally record sighting
+    db.updateBeaconLocation(beacon.id, {
+      room_id: beacon.last_room_id,
+      proxy_id: proxyId || beacon.last_proxy_id,
+      rssi,
+      distance
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to process BLE heartbeat:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // Health Check and Config Routes
 // ============================================================================
 
@@ -1939,6 +2605,53 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     oauth: GOOGLE_OAUTH_CONFIGURED ? 'configured' : 'demo_mode',
     pixabay: PIXABAY_API_KEY ? 'configured' : 'not_configured'
+  });
+});
+
+// ============================================================================
+// Server-Sent Events (SSE) Endpoint
+// ============================================================================
+
+/**
+ * Broadcast an event to all connected SSE clients
+ * @param {string} type - Event type (e.g., 'checkin', 'checkout')
+ * @param {Object} data - Event data
+ */
+function broadcastEvent(type, data) {
+  const event = JSON.stringify({ type, data, timestamp: new Date().toISOString() });
+  for (const client of sseClients) {
+    client.write(`event: ${type}\ndata: ${event}\n\n`);
+  }
+  // Also emit on eventBus for internal listeners
+  eventBus.emit(type, data);
+}
+
+// GET /api/events - SSE endpoint for real-time updates
+app.get('/api/events', (req, res) => {
+  // Set headers for SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+
+  // Add client to set
+  sseClients.add(res);
+  console.log(`[SSE] Client connected. Total clients: ${sseClients.size}`);
+
+  // Send initial connection message
+  res.write(`event: connected\ndata: ${JSON.stringify({ message: 'Connected to event stream', clients: sseClients.size })}\n\n`);
+
+  // Send heartbeat every 30 seconds to keep connection alive
+  const heartbeatInterval = setInterval(() => {
+    res.write(`event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+  }, 30000);
+
+  // Remove client on disconnect
+  req.on('close', () => {
+    clearInterval(heartbeatInterval);
+    sseClients.delete(res);
+    console.log(`[SSE] Client disconnected. Total clients: ${sseClients.size}`);
   });
 });
 
@@ -2141,12 +2854,17 @@ app.listen(PORT, '0.0.0.0', () => {
   } else {
     console.log('[Scheduler] Skipping scheduler start - HA_TOKEN not configured');
   }
+
+  // Start presence webhook retry interval
+  presenceService.startRetryInterval();
+  console.log('[Presence] Started webhook retry interval');
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully...');
   schedulerService.stop();
+  presenceService.stopRetryInterval();
   db.closeDatabase();
   process.exit(0);
 });
@@ -2154,6 +2872,7 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully...');
   schedulerService.stop();
+  presenceService.stopRetryInterval();
   db.closeDatabase();
   process.exit(0);
 });

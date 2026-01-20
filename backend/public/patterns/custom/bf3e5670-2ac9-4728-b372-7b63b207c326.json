@@ -1,0 +1,11 @@
+{
+  "shape": "circle",
+  "shapeParams": {
+    "lobes": 3
+  },
+  "loops": 25,
+  "growthFactor": 1.1,
+  "spinDegrees": 10,
+  "alternateDirection": false,
+  "startFromCenter": true
+}

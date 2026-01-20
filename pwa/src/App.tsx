@@ -35,6 +35,7 @@ function App() {
                   <Route path="/photos" element={<PhotoFrames />} />
                   <Route path="/frames" element={<PhotoFrames />} />
                   <Route path="/browse-videos" element={<BrowseVideos />} />
+                  <Route path="/create-pattern" element={<Navigate to="/sand" replace />} />
                 </Routes>
               </BrowserRouter>
               </PhotoFrameProvider>

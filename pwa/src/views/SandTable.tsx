@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth, usePresence, useOasis } from '../stores'
 import type { Pattern, PatternSubmission } from '../stores'
 import BottomNav from '../components/BottomNav'
+import { PatternCreatorModal } from '../features/pattern-creator'
 
 export default function SandTable() {
   const navigate = useNavigate()
@@ -30,6 +31,7 @@ export default function SandTable() {
 
   const [viewMode, setViewMode] = useState<'patterns' | 'led'>('patterns')
   const [showPatternBrowser, setShowPatternBrowser] = useState(false)
+  const [showPatternCreator, setShowPatternCreator] = useState(false)
   const [patternSearchQuery, setPatternSearchQuery] = useState('')
   const [trashWarning, setTrashWarning] = useState<string | null>(null)
 
@@ -393,16 +395,27 @@ export default function SandTable() {
               </div>
             </div>
 
-            {/* Browse Patterns Button */}
-            <button
-              onClick={() => setShowPatternBrowser(true)}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-amber-600 text-white rounded-xl font-medium hover:bg-amber-700 transition shadow-sm"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              Find and Add Patterns
-            </button>
+            {/* Pattern Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowPatternBrowser(true)}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-amber-600 text-white rounded-xl font-medium hover:bg-amber-700 transition shadow-sm"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                Browse
+              </button>
+              <button
+                onClick={() => setShowPatternCreator(true)}
+                className="flex-1 flex items-center justify-center gap-2 py-3 bg-amber-500 text-white rounded-xl font-medium hover:bg-amber-600 transition shadow-sm"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Create
+              </button>
+            </div>
 
             {/* Trash Warning */}
             {trashWarning && (
@@ -1025,6 +1038,16 @@ export default function SandTable() {
           </div>
         </div>
       )}
+
+      {/* Pattern Creator Modal */}
+      <PatternCreatorModal
+        isOpen={showPatternCreator}
+        onClose={() => setShowPatternCreator(false)}
+        onPatternCreated={() => {
+          // Refresh queue after pattern is created
+          refresh()
+        }}
+      />
 
       <BottomNav />
     </div>
