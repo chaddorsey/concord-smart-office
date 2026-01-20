@@ -119,10 +119,91 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Check session on mount
+  // Check session on mount, auto-login in demo mode if no session
   useEffect(() => {
-    checkSession()
-  }, [checkSession])
+    const initAuth = async () => {
+      console.log('[Auth] Checking session...')
+      setState(prev => ({ ...prev, isLoading: true, error: null }))
+
+      try {
+        // Check existing session
+        const sessionRes = await fetch(`${BACKEND_URL}/api/auth/session`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: getHeaders()
+        })
+
+        if (sessionRes.ok) {
+          const sessionData = await sessionRes.json()
+          if (sessionData.user) {
+            console.log('[Auth] Existing session found')
+            setState({
+              isAuthenticated: true,
+              connectionStatus: 'authenticated',
+              user: sessionData.user,
+              error: null,
+              isMockMode: false,
+              isLoading: false
+            })
+            return
+          }
+        }
+
+        // No session - check if we're in demo mode
+        const configRes = await fetch(`${BACKEND_URL}/api/config`, {
+          headers: getHeaders()
+        })
+
+        if (configRes.ok) {
+          const config = await configRes.json()
+          if (!config.oauth?.configured) {
+            // Demo mode - auto login
+            console.log('[Auth] Demo mode detected, auto-logging in...')
+            const demoRes = await fetch(`${BACKEND_URL}/api/auth/demo`, {
+              method: 'POST',
+              headers: getHeaders({ 'Content-Type': 'application/json' }),
+              credentials: 'include',
+              body: JSON.stringify({ name: 'Demo User', email: 'demo@example.com' })
+            })
+
+            if (demoRes.ok) {
+              const data = await demoRes.json()
+              setState({
+                isAuthenticated: true,
+                connectionStatus: 'authenticated',
+                user: data.user,
+                error: null,
+                isMockMode: false,
+                isLoading: false
+              })
+              return
+            }
+          }
+        }
+
+        // No session and not demo mode (or demo login failed)
+        setState({
+          isAuthenticated: false,
+          connectionStatus: 'disconnected',
+          user: null,
+          error: null,
+          isMockMode: false,
+          isLoading: false
+        })
+      } catch (err) {
+        console.error('[Auth] Init failed:', err)
+        setState({
+          isAuthenticated: false,
+          connectionStatus: 'error',
+          user: null,
+          error: 'Failed to initialize auth',
+          isMockMode: false,
+          isLoading: false
+        })
+      }
+    }
+    initAuth()
+  }, [])
 
   const loginWithGoogle = useCallback(() => {
     // Redirect to backend OAuth endpoint

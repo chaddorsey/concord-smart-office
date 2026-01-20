@@ -59,10 +59,9 @@ function verifyOAuthState(storedState, returnedState) {
  * @returns {object} Cookie configuration options
  */
 function getSessionCookieOptions() {
-  // For cross-origin requests (e.g., different ngrok domains), we need sameSite: 'none'
-  // sameSite: 'none' requires secure: true
-  const isSecure = process.env.NODE_ENV === 'production' ||
-                   process.env.PWA_URL?.startsWith('https://');
+  // Only use secure cookies if PWA_URL is HTTPS
+  // This allows local network HTTP deployments to work
+  const isSecure = process.env.PWA_URL?.startsWith('https://');
   return {
     httpOnly: true,
     secure: isSecure,

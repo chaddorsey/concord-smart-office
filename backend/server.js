@@ -52,6 +52,9 @@ const GOOGLE_OAUTH_CONFIGURED = !!(
 // Initialize Express app
 const app = express();
 
+// Disable ETags globally to prevent 304 responses on real-time API data
+app.disable('etag');
+
 // ============================================================================
 // Database Initialization
 // ============================================================================
@@ -97,6 +100,15 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
 }));
+
+// Disable caching on all API endpoints for real-time data freshness
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+  next();
+});
 
 // Static files from ./public (kiosk pages, etc.)
 app.use(express.static(path.join(__dirname, 'public')));

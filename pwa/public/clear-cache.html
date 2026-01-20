@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clear Cache - Concord Smart Office</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f3f4f6;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      padding: 2rem;
+      max-width: 320px;
+      width: 100%;
+      text-align: center;
+    }
+    h1 { font-size: 1.25rem; color: #111; margin-bottom: 1rem; }
+    p { color: #666; margin-bottom: 1.5rem; line-height: 1.5; }
+    button {
+      width: 100%;
+      padding: 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: white;
+      background: #2563eb;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:active { background: #1d4ed8; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 1rem auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .success { color: #22c55e; font-size: 3rem; margin-bottom: 1rem; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="idle">
+      <h1>Clear App Cache</h1>
+      <p>This will clear all cached data and reload with the latest version.</p>
+      <button onclick="clearCache()">Clear Cache & Reload</button>
+    </div>
+    <div id="clearing" class="hidden">
+      <h1>Clearing...</h1>
+      <div class="spinner"></div>
+    </div>
+    <div id="done" class="hidden">
+      <div class="success">✓</div>
+      <p>Cache cleared! Reloading...</p>
+    </div>
+  </div>
+
+  <script>
+    async function clearCache() {
+      document.getElementById('idle').classList.add('hidden');
+      document.getElementById('clearing').classList.remove('hidden');
+
+      try {
+        // Unregister all service workers
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            await reg.unregister();
+            console.log('Unregistered SW:', reg.scope);
+          }
+        }
+
+        // Clear all caches
+        if ('caches' in window) {
+          const names = await caches.keys();
+          for (const name of names) {
+            await caches.delete(name);
+            console.log('Deleted cache:', name);
+          }
+        }
+
+        // Clear storage
+        localStorage.clear();
+        sessionStorage.clear();
+
+      } catch (e) {
+        console.error('Error clearing cache:', e);
+      }
+
+      document.getElementById('clearing').classList.add('hidden');
+      document.getElementById('done').classList.remove('hidden');
+
+      setTimeout(() => {
+        window.location.href = '/?nocache=' + Date.now();
+      }, 1000);
+    }
+  </script>
+</body>
+</html>

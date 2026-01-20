@@ -9,6 +9,7 @@ import Music from './views/Music'
 import SandTable from './views/SandTable'
 import PhotoFrames from './views/PhotoFrames'
 import BrowseVideos from './views/BrowseVideos'
+import ClearCache from './views/ClearCache'
 
 function App() {
   const [_haConnected, setHaConnected] = useState(false)
@@ -36,6 +37,7 @@ function App() {
                   <Route path="/frames" element={<PhotoFrames />} />
                   <Route path="/browse-videos" element={<BrowseVideos />} />
                   <Route path="/create-pattern" element={<Navigate to="/sand" replace />} />
+                  <Route path="/clear-cache" element={<ClearCache />} />
                 </Routes>
               </BrowserRouter>
               </PhotoFrameProvider>

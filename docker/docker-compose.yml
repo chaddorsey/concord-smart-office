@@ -45,6 +45,7 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
       # Home Assistant
       - HA_WEBHOOK_TOKEN=${HA_WEBHOOK_TOKEN:-}
+      - HA_TOKEN=${HA_TOKEN:-}
       # Kiosk
       - TOKEN_EXPIRY_SECONDS=${TOKEN_EXPIRY_SECONDS:-60}
       # External APIs
@@ -68,7 +69,10 @@ services:
       - ha-config:/config
       - ../homeassistant/packages:/config/packages:ro
       - ../homeassistant/configuration.yaml:/config/configuration.yaml:ro
-      - ../homeassistant/custom_components:/config/custom_components:ro
+      - ../homeassistant/automations.yaml:/config/automations.yaml:ro
+      - ../homeassistant/scripts.yaml:/config/scripts.yaml:ro
+      - ../homeassistant/scenes.yaml:/config/scenes.yaml:ro
+      - ../homeassistant/custom_components:/config/custom_components
     environment:
       - TZ=${TZ:-America/New_York}
     healthcheck:

@@ -2,24 +2,39 @@
 # Provides mock entities when real integrations aren't available
 # Remove or disable this in production
 
-# Mock media player for Spotify testing (when SpotifyPlus isn't installed)
-# This simulates a basic media_player entity
 input_boolean:
   mock_spotify_playing:
     name: "Mock Spotify - Playing"
     icon: mdi:play-pause
+  mock_oasis_power:
+    name: "Mock Oasis - Power"
+    icon: mdi:power
+  mock_frame_1_online:
+    name: "Mock Frame 1 - Online"
+    initial: true
+    icon: mdi:monitor
+  mock_frame_2_online:
+    name: "Mock Frame 2 - Online"
+    initial: true
+    icon: mdi:monitor
+  mock_frame_3_online:
+    name: "Mock Frame 3 - Online"
+    initial: false
+    icon: mdi:monitor
+  mock_frame_4_online:
+    name: "Mock Frame 4 - Online"
+    initial: true
+    icon: mdi:monitor
 
 input_text:
   mock_spotify_track:
     name: "Mock Spotify - Track"
     initial: "Bohemian Rhapsody"
     icon: mdi:music
-
   mock_spotify_artist:
     name: "Mock Spotify - Artist"
     initial: "Queen"
     icon: mdi:account-music
-
   mock_spotify_album:
     name: "Mock Spotify - Album"
     initial: "A Night at the Opera"
@@ -33,7 +48,6 @@ input_number:
     step: 1
     initial: 50
     icon: mdi:volume-high
-
   mock_spotify_progress:
     name: "Mock Spotify - Progress"
     min: 0
@@ -41,8 +55,14 @@ input_number:
     step: 1
     initial: 0
     icon: mdi:progress-clock
+  mock_oasis_led_brightness:
+    name: "Mock Oasis - LED Brightness"
+    min: 0
+    max: 255
+    step: 1
+    initial: 128
+    icon: mdi:brightness-6
 
-# Mock Oasis Sand Table
 input_select:
   mock_oasis_pattern:
     name: "Mock Oasis - Pattern"
@@ -57,7 +77,6 @@ input_select:
       - "Fibonacci"
     initial: "Zen Garden"
     icon: mdi:blur
-
   mock_oasis_status:
     name: "Mock Oasis - Status"
     options:
@@ -67,43 +86,6 @@ input_select:
     initial: "idle"
     icon: mdi:information
 
-input_boolean:
-  mock_oasis_power:
-    name: "Mock Oasis - Power"
-    icon: mdi:power
-
-input_number:
-  mock_oasis_led_brightness:
-    name: "Mock Oasis - LED Brightness"
-    min: 0
-    max: 255
-    step: 1
-    initial: 128
-    icon: mdi:brightness-6
-
-# Mock Photo Frames
-input_boolean:
-  mock_frame_1_online:
-    name: "Mock Frame 1 - Online"
-    initial: true
-    icon: mdi:monitor
-
-  mock_frame_2_online:
-    name: "Mock Frame 2 - Online"
-    initial: true
-    icon: mdi:monitor
-
-  mock_frame_3_online:
-    name: "Mock Frame 3 - Online"
-    initial: false
-    icon: mdi:monitor
-
-  mock_frame_4_online:
-    name: "Mock Frame 4 - Online"
-    initial: true
-    icon: mdi:monitor
-
-# Template sensors to provide media_player-like attributes
 template:
   - sensor:
       - name: "Mock Spotify Player"
@@ -121,7 +103,6 @@ template:
           repeat: "off"
           source: "Mock Device"
           entity_picture: "https://i.scdn.co/image/ab67616d0000b273ce4f1737bc8a646c8c4bd25a"
-
       - name: "Mock Oasis Status"
         unique_id: mock_oasis_status_sensor
         state: "{{ states('input_select.mock_oasis_status') }}"
@@ -130,7 +111,6 @@ template:
           led_brightness: "{{ states('input_number.mock_oasis_led_brightness') | int(128) }}"
           power: "{{ is_state('input_boolean.mock_oasis_power', 'on') }}"
 
-# Scripts for mock controls
 script:
   mock_spotify_play:
     alias: "Mock Spotify - Play"
@@ -138,14 +118,12 @@ script:
       - service: input_boolean.turn_on
         target:
           entity_id: input_boolean.mock_spotify_playing
-
   mock_spotify_pause:
     alias: "Mock Spotify - Pause"
     sequence:
       - service: input_boolean.turn_off
         target:
           entity_id: input_boolean.mock_spotify_playing
-
   mock_spotify_next:
     alias: "Mock Spotify - Next Track"
     sequence:
@@ -163,7 +141,6 @@ script:
           entity_id: input_number.mock_spotify_progress
         data:
           value: 0
-
   mock_oasis_play_pattern:
     alias: "Mock Oasis - Play Pattern"
     fields:
