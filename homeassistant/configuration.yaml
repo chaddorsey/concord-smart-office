@@ -53,6 +53,13 @@ automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
 
+# Sonos speakers (manual IP configuration to bypass Docker network isolation)
+sonos:
+  media_player:
+    hosts:
+      - 10.100.1.228
+      - 10.100.1.229
+
 # Logger configuration
 logger:
   default: info

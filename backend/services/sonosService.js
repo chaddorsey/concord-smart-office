@@ -343,14 +343,33 @@ async function playTrack(trackUrl) {
     throw new Error('Sonos entity not configured');
   }
 
-  console.log(`[Sonos] Playing track: ${trackUrl}`);
+  // Convert spotify:track:ID to Sonos-specific format
+  // Format: x-sonos-spotify:spotify%3atrack%3aID?sid=12&flags=8232&sn=4
+  let sonosUri = trackUrl;
+  if (trackUrl.startsWith('spotify:track:')) {
+    const encodedUri = encodeURIComponent(trackUrl);
+    // sid=12 is Spotify, flags=8232 enables proper playback, sn=4 is service number
+    sonosUri = `x-sonos-spotify:${encodedUri}?sid=12&flags=8232&sn=4`;
+  }
 
-  return callService('media_player', 'play_media', {
-    media_content_id: trackUrl,
-    media_content_type: 'music'
-  }, {
-    entity_id: SONOS_ENTITY_ID
-  });
+  console.log(`[Sonos] Playing track: ${sonosUri}`);
+
+  try {
+    // Use enqueue: 'replace' to clear queue and play immediately
+    // This replaces any existing queue with our track
+    const result = await callService('media_player', 'play_media', {
+      media_content_id: sonosUri,
+      media_content_type: 'music',
+      enqueue: 'replace'
+    }, {
+      entity_id: SONOS_ENTITY_ID
+    });
+
+    return result;
+  } catch (error) {
+    console.error('[Sonos] Play command error:', error.message);
+    throw error;
+  }
 }
 
 /**

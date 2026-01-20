@@ -43,7 +43,7 @@ services:
       - GOOGLE_ALLOWED_DOMAIN=${GOOGLE_ALLOWED_DOMAIN:-}
       - AUTH_CALLBACK_URL=${AUTH_CALLBACK_URL:-http://localhost/api/auth/google/callback}
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
-      # Home Assistant
+      # Home Assistant (via host network)
       - HA_WEBHOOK_TOKEN=${HA_WEBHOOK_TOKEN:-}
       - HA_TOKEN=${HA_TOKEN:-}
       # Kiosk
@@ -65,6 +65,8 @@ services:
     image: ghcr.io/home-assistant/home-assistant:stable
     container_name: concord-ha
     restart: unless-stopped
+    ports:
+      - "8123:8123"
     volumes:
       - ha-config:/config
       - ../homeassistant/packages:/config/packages:ro

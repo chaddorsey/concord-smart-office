@@ -20,6 +20,21 @@ let consecutiveFailures = 0;
 let lastPlayedTrackUrl = null;
 
 /**
+ * Extract Spotify track ID from various URL formats
+ * Handles both spotify:track:ID and x-sonos-spotify encoded formats
+ */
+function getTrackId(url) {
+  if (!url) return null;
+  // Handle spotify:track:ID format
+  if (url.startsWith('spotify:track:')) {
+    return url.replace('spotify:track:', '');
+  }
+  // Handle URL-encoded Sonos format (spotify%3atrack%3aID)
+  const match = url.match(/spotify%3[Aa]track%3[Aa]([a-zA-Z0-9]+)/i);
+  return match ? match[1] : null;
+}
+
+/**
  * Initialize and start the scheduler
  */
 async function start() {
@@ -146,42 +161,48 @@ async function tick() {
  */
 async function processPlaybackState() {
   const playbackState = await sonosService.getPlaybackState();
+  const schedulerState = db.getSchedulerState();
 
   // Check if track has finished
   const trackFinished = sonosService.isTrackFinished(playbackState);
 
-  // Also check if we're idle/stopped without an active track
-  const needsNewTrack = trackFinished ||
-    playbackState.state === 'idle' ||
+  // Check if we're idle/stopped without an active track
+  const isIdle = playbackState.state === 'idle' ||
     playbackState.state === 'off' ||
     (playbackState.state === 'paused' && !playbackState.mediaContentId);
 
+  // Check if external content is present (not started by us)
+  // We take over if: we have no current play session AND there's media content
+  // that we didn't start (lastPlayedTrackUrl doesn't match or is null)
+  // This handles both playing AND paused external content
+  const lastTrackId = getTrackId(lastPlayedTrackUrl);
+  const currentTrackId = getTrackId(playbackState.mediaContentId);
+
+  // If we have a current play ID, we're actively managing playback - don't treat as external
+  // Only consider external content if we have NO active play session
+  const hasExternalContent = playbackState.mediaContentId &&
+    !schedulerState.current_play_id &&
+    !lastTrackId; // Only if we've never played anything
+
+  const needsNewTrack = trackFinished || isIdle || hasExternalContent;
+
   if (needsNewTrack) {
-    console.log('[Scheduler] Track finished or idle, selecting next track...');
+    if (hasExternalContent) {
+      console.log('[Scheduler] Taking over from external playback...');
+    } else {
+      console.log('[Scheduler] Track finished or idle, selecting next track...');
+    }
 
     // Finalize current play if there is one
-    const schedulerState = db.getSchedulerState();
     if (schedulerState.current_play_id) {
       finalizeCurrentPlay(schedulerState.current_play_id, 'completed');
     }
 
     // Select and play next track
     await playNextTrack();
-  } else if (playbackState.isPlaying) {
-    // Track is playing - update position tracking if needed
-    const schedulerState = db.getSchedulerState();
-
-    // Check if this is a different track than we started
-    if (playbackState.mediaContentId &&
-        lastPlayedTrackUrl &&
-        playbackState.mediaContentId !== lastPlayedTrackUrl) {
-      console.log('[Scheduler] Detected track change (external or skip)');
-      // Track was changed externally, finalize the old one
-      if (schedulerState.current_play_id) {
-        finalizeCurrentPlay(schedulerState.current_play_id, 'skipped');
-        db.updateSchedulerState({ current_play_id: null });
-      }
-    }
+  } else if (playbackState.isPlaying && schedulerState.current_play_id) {
+    // Track is playing and we have an active session - nothing to do
+    // We trust that our track is playing until it finishes or goes idle
   }
 
   // Update volume based on presence preferences
@@ -206,13 +227,13 @@ async function playNextTrack() {
     await sonosService.playTrack(nextTrack.trackUrl);
 
     // Record play start
-    const playId = recordPlayStart(nextTrack);
+    const playRecord = recordPlayStart(nextTrack);
+    const playId = playRecord?.id || playRecord;
 
     // Update scheduler state
     lastPlayedTrackUrl = nextTrack.trackUrl;
     db.updateSchedulerState({
-      current_play_id: playId,
-      last_track_url: nextTrack.trackUrl
+      current_play_id: playId
     });
 
     // Update recent tracks list for smoothing
@@ -225,6 +246,9 @@ async function playNextTrack() {
         [nextTrack.submissionId]
       );
     }
+
+    // Brief delay to allow Sonos state to update before next tick
+    await new Promise(r => setTimeout(r, 2000));
 
     console.log('[Scheduler] Track started successfully');
   } catch (error) {
@@ -505,11 +529,11 @@ async function forcePlay(trackUrl, source = 'admin') {
 
   try {
     await sonosService.playTrack(trackUrl);
-    const playId = recordPlayStart(nextTrack);
+    const playRecord = recordPlayStart(nextTrack);
+    const playId = playRecord?.id || playRecord;
     lastPlayedTrackUrl = trackUrl;
     db.updateSchedulerState({
-      current_play_id: playId,
-      last_track_url: trackUrl
+      current_play_id: playId
     });
     return { success: true, playId };
   } catch (error) {

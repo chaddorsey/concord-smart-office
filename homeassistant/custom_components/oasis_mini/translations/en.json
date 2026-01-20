@@ -1,0 +1,165 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "invalid_host": "Invalid hostname or IP address",
+      "timeout_connect": "Timeout establishing connection",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Re-configuration was successful",
+      "wrong_account": "Account used for the integration should not change"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Add your cloud credentials to get additional information about your device",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid authentication"
+    }
+  },
+  "entity": {
+    "button": {
+      "random_track": {
+        "name": "Play random track"
+      },
+      "sleep": {
+        "name": "Sleep"
+      }
+    },
+    "binary_sensor": {
+      "busy": {
+        "name": "Busy"
+      },
+      "wifi_status": {
+        "name": "Wi-Fi status"
+      }
+    },
+    "light": {
+      "led": {
+        "name": "LED"
+      }
+    },
+    "number": {
+      "ball_speed": {
+        "name": "Ball speed"
+      },
+      "led_speed": {
+        "name": "LED speed"
+      }
+    },
+    "select": {
+      "autoplay": {
+        "name": "Autoplay",
+        "state": {
+          "1": "Off",
+          "0": "Immediately",
+          "2": "After 5 minutes",
+          "3": "After 10 minutes",
+          "4": "After 30 minutes",
+          "6": "After 1 hour",
+          "7": "After 6 hours",
+          "8": "After 12 hours",
+          "5": "After 24 hours"
+        }
+      },
+      "playlist": {
+        "name": "Playlist"
+      },
+      "queue": {
+        "name": "Queue"
+      }
+    },
+    "sensor": {
+      "download_progress": {
+        "name": "Download progress"
+      },
+      "drawing_progress": {
+        "name": "Drawing progress"
+      },
+      "error": {
+        "name": "Error",
+        "state": {
+          "0": "None",
+          "1": "Error has occurred while reading the flash memory",
+          "2": "Error while starting the Wifi",
+          "3": "Error when starting DNS settings for your machine",
+          "4": "Failed to open the file to write",
+          "5": "Not enough memory to perform the upgrade",
+          "6": "Error while trying to upgrade your system",
+          "7": "Error while trying to download the new version of the software",
+          "8": "Error while reading the upgrading file",
+          "9": "Failed to start downloading the upgrade file",
+          "10": "Error while starting downloading the job file",
+          "11": "Error while opening the file folder",
+          "12": "Failed to delete a file",
+          "13": "Error while opening the job file",
+          "14": "You have wrong power adapter",
+          "15": "Failed to update the device IP on Oasis Server",
+          "16": "Your device failed centering itself",
+          "17": "There appears to be an issue with your Oasis Device",
+          "18": "Error while downloading the job file"
+        }
+      },
+      "last_updated": {
+        "name": "Last updated"
+      },
+      "led_color_id": {
+        "name": "LED color ID"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "booting": "Booting",
+          "stopped": "Stopped",
+          "centering": "Centering",
+          "playing": "Playing",
+          "paused": "Paused",
+          "sleeping": "Sleeping",
+          "error": "Error",
+          "updating": "Updating",
+          "downloading": "Downloading",
+          "busy": "Busy",
+          "live": "Live drawing"
+        }
+      }
+    },
+    "switch": {
+      "auto_clean": {
+        "name": "Auto-clean"
+      }
+    }
+  },
+  "exceptions": {
+    "device_busy": {
+      "message": "{name} is currently busy and cannot be modified"
+    },
+    "invalid_media": {
+      "message": "Invalid media: {media}"
+    }
+  }
+}
