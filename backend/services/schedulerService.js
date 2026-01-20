@@ -282,7 +282,8 @@ function chooseNextTrack() {
       submissionId: submission.id,
       trackUrl: submission.track_url,
       title: submission.title,
-      artist: submission.artist
+      artist: submission.artist,
+      albumArt: submission.thumbnail
     };
   }
 
@@ -312,6 +313,7 @@ function chooseNextTrack() {
     trackUrl: track.track_url,
     title: track.title,
     artist: track.artist,
+    albumArt: track.album_art,
     weights: weights
   };
 }
@@ -387,6 +389,7 @@ function recordPlayStart(nextTrack) {
     trackUrl: nextTrack.trackUrl,
     title: nextTrack.title,
     artist: nextTrack.artist,
+    albumArt: nextTrack.albumArt || null,
     source: nextTrack.source,
     tasteId: nextTrack.tasteId || null,
     submissionId: nextTrack.submissionId || null,

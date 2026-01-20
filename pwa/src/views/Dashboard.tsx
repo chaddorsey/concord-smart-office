@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth, usePresence, useSpotify, useOasis, usePhotoFrames } from '../stores'
+import { useAuth, usePresence, useMusic, useOasis, usePhotoFrames } from '../stores'
 import BottomNav from '../components/BottomNav'
 
 function formatArrivalTime(isoString: string | null): string {
@@ -10,12 +10,15 @@ function formatArrivalTime(isoString: string | null): string {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
+// Concord Consortium Logo - white version for dark backgrounds
+const CONCORD_LOGO_URL = 'https://concord.org/wp-content/themes/concord2017/images/concord-logo.svg'
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const { isAuthenticated, connectionStatus, logout } = useAuth()
   const { staff, presentCount, isCurrentUserPresent, isLoading, error, refresh } = usePresence()
-  const { playback, skipVoteCount, skipVotesNeeded } = useSpotify()
-  const { status: oasisStatus, patternQueue } = useOasis()
+  const { nowPlaying, queue: musicQueue } = useMusic()
+  const { status: oasisStatus, haStatus, patternQueue } = useOasis()
   const { frames, mediaLibrary } = usePhotoFrames()
 
   // Redirect to login if not authenticated
@@ -30,19 +33,23 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
-      <header className="bg-blue-600 text-white px-4 py-4 shadow-lg">
+      <header className="bg-white px-4 py-4 shadow-lg border-b border-gray-100">
         <div className="max-w-lg mx-auto flex items-center justify-between">
-          <h1 className="text-xl font-bold">Smart Office</h1>
+          <img
+            src={CONCORD_LOGO_URL}
+            alt="Concord Consortium"
+            className="h-10 w-auto"
+          />
           <div className="flex items-center gap-2">
             <Link
               to="/scan"
-              className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium text-sm hover:bg-blue-50 transition"
+              className="bg-concord-teal text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-concord-teal/90 transition"
             >
               {isCurrentUserPresent ? 'Scan Out' : 'Scan In'}
             </Link>
             <button
               onClick={logout}
-              className="p-2 hover:bg-blue-500 rounded-lg transition"
+              className="p-2 hover:bg-gray-100 rounded-lg transition text-gray-600"
               title="Logout"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,7 +62,7 @@ export default function Dashboard() {
 
       {/* Connection Status */}
       {connectionStatus !== 'authenticated' && (
-        <div className="bg-amber-100 text-amber-800 px-4 py-2 text-center text-sm">
+        <div className="bg-concord-mango text-white px-4 py-2 text-center text-sm">
           {connectionStatus === 'connecting' && 'Connecting to Home Assistant...'}
           {connectionStatus === 'disconnected' && 'Disconnected from Home Assistant'}
           {connectionStatus === 'error' && 'Connection error - retrying...'}
@@ -77,15 +84,15 @@ export default function Dashboard() {
         {/* Presence Status Card */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Who's In</h2>
-            <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
+            <h2 className="text-lg font-semibold text-gray-900 font-museo">Who's In</h2>
+            <span className="bg-concord-green/20 text-concord-green px-3 py-1 rounded-full text-sm font-medium">
               {presentCount} {presentCount === 1 ? 'person' : 'people'}
             </span>
           </div>
 
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <div className="w-8 h-8 border-4 border-concord-teal border-t-transparent rounded-full animate-spin" />
             </div>
           ) : presentStaff.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
@@ -98,7 +105,7 @@ export default function Dashboard() {
             <div className="space-y-3">
               {presentStaff.map((person) => (
                 <div key={person.id} className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-medium text-sm">
+                  <div className="w-10 h-10 rounded-full bg-concord-teal/20 text-concord-teal flex items-center justify-center font-medium text-sm">
                     {person.avatarInitials}
                   </div>
                   <div className="flex-1">
@@ -116,19 +123,19 @@ export default function Dashboard() {
         {/* Now Playing Card */}
         <Link to="/music" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Now Playing</h2>
-            {skipVoteCount > 0 && (
-              <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded-full text-xs font-medium">
-                {skipVoteCount}/{skipVotesNeeded} skip votes
+            <h2 className="text-lg font-semibold text-gray-900 font-museo">Now Playing</h2>
+            {musicQueue.length > 0 && (
+              <span className="bg-concord-orange/20 text-concord-orange px-2 py-1 rounded-full text-xs font-medium">
+                {musicQueue.length} queued
               </span>
             )}
           </div>
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
-              {playback?.track?.albumArt ? (
+            <div className="w-16 h-16 bg-gradient-to-br from-concord-green to-concord-teal rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
+              {nowPlaying?.thumbnail ? (
                 <img
-                  src={playback.track.albumArt}
-                  alt={playback.track.album}
+                  src={nowPlaying.thumbnail}
+                  alt={nowPlaying.title || 'Album art'}
                   className="w-full h-full object-cover"
                 />
               ) : (
@@ -138,25 +145,21 @@ export default function Dashboard() {
               )}
             </div>
             <div className="flex-1 min-w-0">
-              {playback?.track ? (
+              {nowPlaying ? (
                 <>
-                  <p className="text-gray-900 font-medium truncate">{playback.track.title}</p>
-                  <p className="text-gray-500 text-sm truncate">{playback.track.artist}</p>
+                  <p className="text-gray-900 font-medium truncate">{nowPlaying.title || 'Unknown Track'}</p>
+                  <p className="text-gray-500 text-sm truncate">{nowPlaying.artist || 'Unknown Artist'}</p>
                   <div className="flex items-center gap-2 mt-1">
-                    {playback.isPlaying ? (
-                      <span className="flex items-center gap-1 text-green-600 text-xs">
-                        <span className="w-2 h-2 bg-green-600 rounded-full animate-pulse" />
-                        Playing
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 text-xs">Paused</span>
-                    )}
+                    <span className="flex items-center gap-1 text-concord-green text-xs">
+                      <span className="w-2 h-2 bg-concord-green rounded-full animate-pulse" />
+                      Playing
+                    </span>
                   </div>
                 </>
               ) : (
                 <>
                   <p className="text-gray-500 font-medium">Nothing playing</p>
-                  <p className="text-gray-400 text-sm">Tap to control Spotify</p>
+                  <p className="text-gray-400 text-sm">Tap to browse music</p>
                 </>
               )}
             </div>
@@ -165,7 +168,7 @@ export default function Dashboard() {
             </svg>
           </div>
           {!isCurrentUserPresent && (
-            <p className="text-sm text-amber-600 mt-4 bg-amber-50 px-3 py-2 rounded-lg">
+            <p className="text-sm text-concord-orange mt-4 bg-concord-mango/20 px-3 py-2 rounded-lg">
               Scan in to vote on music
             </p>
           )}
@@ -174,39 +177,45 @@ export default function Dashboard() {
         {/* Sand Table Card */}
         <Link to="/sand" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Sand Table</h2>
+            <h2 className="text-lg font-semibold text-gray-900 font-museo">Sand Table</h2>
             {patternQueue.length > 0 && (
-              <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded-full text-xs font-medium">
+              <span className="bg-concord-mango/20 text-concord-orange px-2 py-1 rounded-full text-xs font-medium">
                 {patternQueue.length} queued
               </span>
             )}
           </div>
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
-              {oasisStatus?.currentPattern?.thumbnail_url ? (
+            <div className="w-16 h-16 bg-gradient-to-br from-concord-mango to-concord-orange rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {(haStatus?.currentPattern?.thumbnailUrl || oasisStatus?.currentPattern?.thumbnail_url) ? (
                 <img
-                  src={oasisStatus.currentPattern.thumbnail_url}
-                  alt={oasisStatus.currentPattern.pattern_name}
+                  src={haStatus?.currentPattern?.thumbnailUrl || oasisStatus?.currentPattern?.thumbnail_url || ''}
+                  alt={haStatus?.currentPattern?.name || oasisStatus?.currentPattern?.pattern_name || 'Pattern'}
                   className="w-full h-full object-cover"
                 />
-              ) : oasisStatus?.isRunning ? (
-                <svg className="w-8 h-8 text-white animate-spin" style={{ animationDuration: '3s' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              ) : (haStatus?.state === 'playing' || oasisStatus?.isRunning) ? (
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12c2-4 4-6 8-6s6 4 8 2" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16c3-3 5-5 9-3s5 1 7-1" />
+                  <circle cx="20" cy="15" r="2.5" fill="currentColor" stroke="none" />
                 </svg>
               ) : (
                 <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12c2-4 4-6 8-6s6 4 8 2" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16c3-3 5-5 9-3s5 1 7-1" />
+                  <circle cx="20" cy="15" r="2.5" fill="currentColor" stroke="none" />
                 </svg>
               )}
             </div>
             <div className="flex-1 min-w-0">
-              {oasisStatus?.currentPattern ? (
+              {(haStatus?.currentPattern?.name || oasisStatus?.currentPattern) ? (
                 <>
-                  <p className="text-gray-900 font-medium truncate">{oasisStatus.currentPattern.pattern_name}</p>
+                  <p className="text-gray-900 font-medium truncate">
+                    {haStatus?.currentPattern?.name || oasisStatus?.currentPattern?.pattern_name}
+                  </p>
                   <div className="flex items-center gap-2 mt-1">
-                    {oasisStatus.isRunning ? (
-                      <span className="flex items-center gap-1 text-amber-600 text-xs">
-                        <span className="w-2 h-2 bg-amber-600 rounded-full animate-pulse" />
+                    {(haStatus?.state === 'playing' || oasisStatus?.isRunning) ? (
+                      <span className="flex items-center gap-1 text-concord-orange text-xs">
+                        <span className="w-2 h-2 bg-concord-orange rounded-full animate-pulse" />
                         Drawing
                       </span>
                     ) : (
@@ -226,22 +235,22 @@ export default function Dashboard() {
             </svg>
           </div>
           {!isCurrentUserPresent && (
-            <p className="text-sm text-amber-600 mt-4 bg-amber-50 px-3 py-2 rounded-lg">
+            <p className="text-sm text-concord-orange mt-4 bg-concord-mango/20 px-3 py-2 rounded-lg">
               Scan in to vote on patterns
             </p>
           )}
         </Link>
 
-        {/* Photo Frames Card */}
+        {/* Cafe Screens Card */}
         <Link to="/photos" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Photo Frames</h2>
-            <span className="bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full text-xs font-medium">
+            <h2 className="text-lg font-semibold text-gray-900 font-museo">Cafe Screens</h2>
+            <span className="bg-concord-teal/20 text-concord-teal px-2 py-1 rounded-full text-xs font-medium">
               {frames.filter(f => f.isOnline).length}/{frames.length || 4} online
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-indigo-400 to-purple-500 rounded-lg flex items-center justify-center flex-shrink-0">
+            <div className="w-16 h-16 bg-gradient-to-br from-concord-teal to-concord-green rounded-lg flex items-center justify-center flex-shrink-0">
               <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -252,8 +261,8 @@ export default function Dashboard() {
                   <p className="text-gray-900 font-medium truncate">{mediaLibrary[0]?.title || 'Media'}</p>
                   <p className="text-gray-500 text-sm truncate">{mediaLibrary.length} items in library</p>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="flex items-center gap-1 text-indigo-600 text-xs">
-                      <span className="w-2 h-2 bg-indigo-600 rounded-full" />
+                    <span className="flex items-center gap-1 text-concord-teal text-xs">
+                      <span className="w-2 h-2 bg-concord-teal rounded-full" />
                       {frames.filter(f => f.isOnline).length} frames online
                     </span>
                   </div>
@@ -270,8 +279,8 @@ export default function Dashboard() {
             </svg>
           </div>
           {!isCurrentUserPresent && (
-            <p className="text-sm text-amber-600 mt-4 bg-amber-50 px-3 py-2 rounded-lg">
-              Scan in to vote on photos
+            <p className="text-sm text-concord-orange mt-4 bg-concord-mango/20 px-3 py-2 rounded-lg">
+              Scan in to vote on videos
             </p>
           )}
         </Link>

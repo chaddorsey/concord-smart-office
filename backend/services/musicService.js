@@ -147,6 +147,7 @@ function getNowPlaying() {
     track_url: playHistory.track_url,
     title: playHistory.title,
     artist: playHistory.artist,
+    thumbnail: playHistory.album_art,
     source: playHistory.source,
     taste_id: playHistory.taste_id,
     started_at: playHistory.started_at
@@ -168,6 +169,7 @@ function getUpcoming(count = 10) {
       track_url: submission.track_url,
       title: submission.title,
       artist: submission.artist,
+      thumbnail: submission.thumbnail,
       submitted_by: submission.submitted_by_name,
       upvotes: submission.upvotes,
       downvotes: submission.downvotes
@@ -217,6 +219,7 @@ function generateTastePreview(count) {
         track_url: track.track_url,
         title: track.title,
         artist: track.artist,
+        thumbnail: track.album_art,
         preview: true // Indicates this is probabilistic
       });
       recentTracks.add(track.track_url);
@@ -229,6 +232,7 @@ function generateTastePreview(count) {
         track_url: track.track_url,
         title: track.title,
         artist: track.artist,
+        thumbnail: track.album_art,
         preview: true
       });
     }
@@ -329,7 +333,12 @@ function getVolumeValue(volumeLevel) {
  * Get play history
  */
 function getHistory(limit = 20) {
-  return db.getRecentPlayHistory(limit);
+  const history = db.getRecentPlayHistory(limit);
+  // Map album_art to thumbnail for PWA compatibility
+  return history.map(h => ({
+    ...h,
+    thumbnail: h.album_art
+  }));
 }
 
 /**

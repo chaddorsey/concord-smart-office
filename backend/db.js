@@ -213,6 +213,13 @@ function initDatabase() {
       )
     `);
 
+    // Add album_art column to play_history if not exists
+    try {
+      db.exec(`ALTER TABLE play_history ADD COLUMN album_art TEXT`);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+
     // Presence context snapshot at play time
     db.exec(`
       CREATE TABLE IF NOT EXISTS play_context (
@@ -1425,13 +1432,13 @@ function trashSubmission(submissionId) {
  * @param {Object} playData - Play data
  * @returns {Object} Created play history entry
  */
-function createPlayHistory({ trackUrl, title = null, artist = null, source, tasteId = null, submissionId = null }) {
+function createPlayHistory({ trackUrl, title = null, artist = null, albumArt = null, source, tasteId = null, submissionId = null }) {
   const stmt = db.prepare(`
-    INSERT INTO play_history (track_url, title, artist, source, taste_id, submission_id)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO play_history (track_url, title, artist, album_art, source, taste_id, submission_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const result = stmt.run(trackUrl, title, artist, source, tasteId, submissionId);
+  const result = stmt.run(trackUrl, title, artist, albumArt, source, tasteId, submissionId);
   return getPlayHistoryById(result.lastInsertRowid);
 }
 

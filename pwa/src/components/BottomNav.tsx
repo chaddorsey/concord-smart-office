@@ -12,7 +12,7 @@ const navItems = [
   },
   {
     path: '/music',
-    label: 'Music',
+    label: 'Cafe Music',
     icon: (
       <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
         <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
@@ -21,28 +21,21 @@ const navItems = [
   },
   {
     path: '/sand',
-    label: 'Sand',
+    label: 'Sand Table',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12c2-4 4-6 8-6s6 4 8 2" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16c3-3 5-5 9-3s5 1 7-1" />
+        <circle cx="20" cy="15" r="2.5" fill="currentColor" stroke="none" />
       </svg>
     )
   },
   {
     path: '/photos',
-    label: 'Photos',
+    label: 'Cafe Screens',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    )
-  },
-  {
-    path: '/scan',
-    label: 'Scan',
-    icon: (
-      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
       </svg>
     )
   }
@@ -61,11 +54,11 @@ export default function BottomNav() {
               key={item.path}
               to={item.path}
               className={`flex flex-col items-center py-1 px-3 transition ${
-                isActive ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'
+                isActive ? 'text-concord-teal' : 'text-gray-500 hover:text-concord-teal'
               }`}
             >
               {item.icon}
-              <span className="text-xs mt-1">{item.label}</span>
+              <span className="text-xs mt-1 font-museo-sans">{item.label}</span>
             </Link>
           )
         })}
