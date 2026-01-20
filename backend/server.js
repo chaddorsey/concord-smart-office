@@ -490,6 +490,121 @@ app.get('/api/users/me', authService.requireAuth, (req, res) => {
 });
 
 // ============================================================================
+// Staff Routes (/api/staff) - For manual check-in MVP (no auth required)
+// ============================================================================
+
+// GET /api/staff - Get all staff members for dropdown
+app.get('/api/staff', (req, res) => {
+  try {
+    const staff = db.getDatabase().prepare(`
+      SELECT u.id, u.email, u.name, u.avatar_url
+      FROM users u
+      WHERE u.role = 'staff'
+      ORDER BY u.name
+    `).all();
+
+    res.json({ staff });
+  } catch (error) {
+    console.error('Error fetching staff:', error);
+    res.status(500).json({ error: 'Failed to fetch staff' });
+  }
+});
+
+// POST /api/staff/checkin - Manual check-in (no auth for MVP)
+// Accepts email (preferred for OAuth transition) or userId
+app.post('/api/staff/checkin', async (req, res) => {
+  try {
+    const { email, userId, source = 'manual' } = req.body;
+
+    if (!email && !userId) {
+      return res.status(400).json({ error: 'email or userId is required' });
+    }
+
+    // Get user info - prefer email lookup for OAuth compatibility
+    const user = email ? db.getUserByEmail(email) : db.getUserById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check in using presence service
+    const presence = await presenceService.checkIn(user.id, source, null);
+
+    // Broadcast check-in event
+    broadcastEvent('checkin', {
+      user_id: user.id,
+      user_name: user.name || user.email,
+      user_email: user.email,
+      avatar_url: user.avatar_url,
+      room_id: null,
+      source: source
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        avatar_url: user.avatar_url
+      },
+      presence: {
+        user_id: presence.user_id,
+        status: presence.status,
+        checked_in_at: presence.checked_in_at
+      }
+    });
+  } catch (error) {
+    console.error('Manual check-in error:', error);
+    res.status(500).json({ error: 'Check-in failed', message: error.message });
+  }
+});
+
+// POST /api/staff/checkout - Manual check-out (no auth for MVP)
+// Accepts email (preferred for OAuth transition) or userId
+app.post('/api/staff/checkout', async (req, res) => {
+  try {
+    const { email, userId, source = 'manual' } = req.body;
+
+    if (!email && !userId) {
+      return res.status(400).json({ error: 'email or userId is required' });
+    }
+
+    // Get user info - prefer email lookup for OAuth compatibility
+    const user = email ? db.getUserByEmail(email) : db.getUserById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check out using presence service
+    const presence = await presenceService.checkOut(user.id, source);
+
+    // Broadcast check-out event
+    broadcastEvent('checkout', {
+      user_id: user.id,
+      user_name: user.name || user.email,
+      user_email: user.email,
+      source: source
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email
+      },
+      presence: {
+        user_id: presence.user_id,
+        status: presence.status
+      }
+    });
+  } catch (error) {
+    console.error('Manual check-out error:', error);
+    res.status(500).json({ error: 'Check-out failed', message: error.message });
+  }
+});
+
+// ============================================================================
 // Presence Routes (/api/presence)
 // ============================================================================
 

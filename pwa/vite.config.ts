@@ -76,6 +76,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false
       },
+      // Proxy avatar images from backend
+      '/avatars': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false
+      },
       // Proxy Home Assistant API and WebSocket
       '/ha-api': {
         target: 'http://localhost:8123',

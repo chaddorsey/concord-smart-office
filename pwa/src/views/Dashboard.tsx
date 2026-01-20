@@ -30,6 +30,15 @@ export default function Dashboard() {
 
   const presentStaff = staff.filter(s => s.isPresent)
 
+  // Get the most recently arrived person (sorted by arrivedAt descending)
+  const mostRecentPerson = presentStaff.length > 0
+    ? [...presentStaff].sort((a, b) => {
+        if (!a.arrivedAt) return 1
+        if (!b.arrivedAt) return -1
+        return new Date(b.arrivedAt).getTime() - new Date(a.arrivedAt).getTime()
+      })[0]
+    : null
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
@@ -82,7 +91,7 @@ export default function Dashboard() {
         )}
 
         {/* Presence Status Card */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
+        <Link to="/whos-in" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900 font-museo">Who's In</h2>
             <span className="bg-concord-green/20 text-concord-green px-3 py-1 rounded-full text-sm font-medium">
@@ -95,30 +104,43 @@ export default function Dashboard() {
               <div className="w-8 h-8 border-4 border-concord-teal border-t-transparent rounded-full animate-spin" />
             </div>
           ) : presentStaff.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <svg className="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="text-center py-6 text-gray-500">
+              <svg className="w-10 h-10 mx-auto mb-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
-              <p>No one is in the office</p>
+              <p className="text-sm">No one is in the office yet</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {presentStaff.map((person) => (
-                <div key={person.id} className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-concord-teal/20 text-concord-teal flex items-center justify-center font-medium text-sm">
-                    {person.avatarInitials}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-gray-900 font-medium">{person.name}</p>
-                    <p className="text-gray-500 text-sm">
-                      Arrived {formatArrivalTime(person.arrivedAt)}
-                    </p>
-                  </div>
+            <div className="flex items-center gap-4">
+              {/* Most recent person with square avatar */}
+              {mostRecentPerson?.avatarUrl ? (
+                <img
+                  src={mostRecentPerson.avatarUrl}
+                  alt={mostRecentPerson.name}
+                  className="w-14 h-14 rounded-lg object-cover object-top flex-shrink-0"
+                />
+              ) : (
+                <div className="w-14 h-14 rounded-lg bg-concord-teal/20 text-concord-teal flex items-center justify-center font-medium text-lg flex-shrink-0">
+                  {mostRecentPerson?.avatarInitials}
                 </div>
-              ))}
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-900 font-medium truncate">{mostRecentPerson?.name}</p>
+                <p className="text-gray-500 text-sm">
+                  Arrived {formatArrivalTime(mostRecentPerson?.arrivedAt || null)}
+                </p>
+                {presentCount > 1 && (
+                  <p className="text-concord-teal text-sm mt-0.5">
+                    +{presentCount - 1} more {presentCount === 2 ? 'person' : 'people'}
+                  </p>
+                )}
+              </div>
+              <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
             </div>
           )}
-        </div>
+        </Link>
 
         {/* Now Playing Card */}
         <Link to="/music" className="block bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">
