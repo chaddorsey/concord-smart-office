@@ -313,6 +313,7 @@ function computeWeightsFromListeners(listeners) {
 
 /**
  * Compute volume level based on present users' preferences
+ * Returns the average of all checked-in users' volume preferences
  */
 function computeVolumeLevel() {
   const allPresent = db.getAllPresent();
@@ -321,20 +322,50 @@ function computeVolumeLevel() {
     return 'medium'; // Default when no one present
   }
 
-  // Get volume preferences for all present users
-  const volumes = allPresent.map(p => db.getUserVolume(p.user_id));
+  // Get volume preferences for all present users and convert to numeric values
+  const volumeValues = allPresent.map(p => {
+    const level = db.getUserVolume(p.user_id);
+    return VOLUME_LEVELS[level] || VOLUME_LEVELS.medium;
+  });
 
-  // Use the quietest preference (most conservative)
-  const volumeOrder = ['super_quiet', 'soft', 'medium'];
-  let quietest = 'medium';
+  // Compute average volume
+  const avgVolume = volumeValues.reduce((sum, v) => sum + v, 0) / volumeValues.length;
 
-  for (const vol of volumes) {
-    if (volumeOrder.indexOf(vol) < volumeOrder.indexOf(quietest)) {
-      quietest = vol;
+  // Find the closest named level for display purposes
+  const levels = Object.entries(VOLUME_LEVELS);
+  let closestLevel = 'medium';
+  let closestDiff = Infinity;
+
+  for (const [name, value] of levels) {
+    const diff = Math.abs(value - avgVolume);
+    if (diff < closestDiff) {
+      closestDiff = diff;
+      closestLevel = name;
     }
   }
 
-  return quietest;
+  return closestLevel;
+}
+
+/**
+ * Compute the actual numeric volume value (average of all present users)
+ * This is used by the scheduler for precise volume control
+ */
+function computeVolumeValue() {
+  const allPresent = db.getAllPresent();
+
+  if (allPresent.length === 0) {
+    return VOLUME_LEVELS.medium; // Default when no one present
+  }
+
+  // Get volume preferences for all present users and convert to numeric values
+  const volumeValues = allPresent.map(p => {
+    const level = db.getUserVolume(p.user_id);
+    return VOLUME_LEVELS[level] || VOLUME_LEVELS.medium;
+  });
+
+  // Return average volume
+  return volumeValues.reduce((sum, v) => sum + v, 0) / volumeValues.length;
 }
 
 /**
@@ -451,6 +482,7 @@ module.exports = {
   computeCurrentWeights,
   computeWeightsFromListeners,
   computeVolumeLevel,
+  computeVolumeValue,
   getVolumeValue,
 
   // Utilities

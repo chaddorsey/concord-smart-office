@@ -524,19 +524,21 @@ function updateRecentTracks(nextTrack) {
 
 /**
  * Update volume based on current presence preferences
+ * Uses the average of all checked-in users' volume preferences
  */
 async function updateVolumeIfNeeded() {
   try {
-    const currentVolume = musicService.computeVolumeLevel();
-    const volumeValue = musicService.getVolumeValue(currentVolume);
+    // Get averaged volume value directly
+    const volumeValue = musicService.computeVolumeValue();
+    const volumeLevel = musicService.computeVolumeLevel(); // For logging
 
     // Get current Sonos volume
     const playbackState = await sonosService.getPlaybackState();
 
     // Only adjust if significantly different (avoid constant small adjustments)
     const diff = Math.abs((playbackState.volume || 0) - volumeValue);
-    if (diff > 0.05) {
-      console.log(`[Scheduler] Adjusting volume to ${currentVolume} (${volumeValue})`);
+    if (diff > 0.01) {
+      console.log(`[Scheduler] Adjusting volume to ${volumeLevel} (${volumeValue.toFixed(3)})`);
       await sonosService.setVolume(volumeValue);
     }
   } catch (error) {
