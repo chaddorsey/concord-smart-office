@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth, usePresence, useOasis } from '../stores'
+import { useAuth, usePresence, useOasis, getOasisStateLabel } from '../stores'
 import type { Pattern, PatternSubmission } from '../stores'
 import BottomNav from '../components/BottomNav'
 import { PatternCreatorModal } from '../features/pattern-creator'
@@ -334,7 +334,7 @@ export default function SandTable() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-white/70 text-sm">
-                      {haStatus?.connected ? 'Now Drawing' : (haStatus ? 'Oasis Disconnected' : 'Loading...')}
+                      {haStatus?.connected ? getOasisStateLabel(haStatus.state) : (haStatus ? 'Oasis Disconnected' : 'Loading...')}
                     </p>
                     <h2 className="text-xl font-bold truncate">
                       {haStatus?.currentPattern?.name || (haStatus?.error ? 'Error' : 'No Pattern')}
@@ -356,15 +356,20 @@ export default function SandTable() {
                 {haStatus?.connected && (
                   <div className="mt-4">
                     <div className="flex items-center justify-between text-sm mb-1">
-                      <span className="text-white/70">Drawing Progress</span>
+                      <span className="text-white/70">
+                        {haStatus.state === 'buffering' ? 'Status' : 'Drawing Progress'}
+                      </span>
                       <span className="font-medium">
-                        {drawingProgress !== null ? `${Math.round(drawingProgress)}%` : haStatus.state}
+                        {haStatus.state === 'buffering' ? 'Positioning...' :
+                         haStatus.state === 'idle' ? 'Idle' :
+                         haStatus.state === 'paused' ? 'Paused' :
+                         drawingProgress !== null ? `${Math.round(drawingProgress)}%` : 'Drawing'}
                       </span>
                     </div>
                     <div className="h-2 bg-white/20 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-white transition-all"
-                        style={{ width: `${drawingProgress ?? 0}%` }}
+                        className={`h-full transition-all ${haStatus.state === 'buffering' ? 'bg-white/60 animate-pulse' : 'bg-white'}`}
+                        style={{ width: haStatus.state === 'buffering' ? '100%' : `${drawingProgress ?? 0}%` }}
                       />
                     </div>
                   </div>

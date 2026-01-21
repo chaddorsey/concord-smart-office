@@ -373,6 +373,7 @@ function initDatabase() {
       CREATE TABLE IF NOT EXISTS oasis_scheduler_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         is_running INTEGER DEFAULT 0,
+        is_paused INTEGER DEFAULT 0,
         current_pattern_submission_id INTEGER,
         current_led_submission_id INTEGER,
         led_change_interval_minutes INTEGER DEFAULT 10,
@@ -1691,21 +1692,30 @@ function getOasisQueuedSubmissions() {
     if (vote.value < 0) voteMap[vote.submission_id].downvotes++;
   }
 
-  // Attach votes and calculate effective index
+  // Attach votes to each submission
   for (let i = 0; i < submissions.length; i++) {
     const s = submissions[i];
     const v = voteMap[s.id] || { votes: {}, upvotes: 0, downvotes: 0 };
     s.votes = v.votes;
     s.upvotes = v.upvotes;
     s.downvotes = v.downvotes;
-    s.baseIndex = i;
-    // Effective index: shift by net votes (more upvotes = lower index = plays sooner)
-    const shift = Math.max(0, v.upvotes - 1) - Math.max(0, v.downvotes - 1);
-    s.effectiveIndex = i - shift;
+    s.netVotes = v.upvotes - v.downvotes;
+    s.baseIndex = i; // Original FIFO position
   }
 
-  // Sort by effective index
-  submissions.sort((a, b) => a.effectiveIndex - b.effectiveIndex);
+  // Sort by net votes (descending), then by submission time (FIFO - ascending)
+  // Most upvoted items appear first; ties are broken by earliest submission
+  submissions.sort((a, b) => {
+    if (b.netVotes !== a.netVotes) {
+      return b.netVotes - a.netVotes; // Higher net votes first
+    }
+    return a.baseIndex - b.baseIndex; // Earlier submission first (FIFO)
+  });
+
+  // Update effectiveIndex to reflect final position
+  for (let i = 0; i < submissions.length; i++) {
+    submissions[i].effectiveIndex = i;
+  }
 
   return submissions;
 }
@@ -1839,18 +1849,30 @@ function getOasisLedQueuedSubmissions() {
     if (vote.value < 0) voteMap[vote.submission_id].downvotes++;
   }
 
+  // Attach votes to each submission
   for (let i = 0; i < submissions.length; i++) {
     const s = submissions[i];
     const v = voteMap[s.id] || { votes: {}, upvotes: 0, downvotes: 0 };
     s.votes = v.votes;
     s.upvotes = v.upvotes;
     s.downvotes = v.downvotes;
-    s.baseIndex = i;
-    const shift = Math.max(0, v.upvotes - 1) - Math.max(0, v.downvotes - 1);
-    s.effectiveIndex = i - shift;
+    s.netVotes = v.upvotes - v.downvotes;
+    s.baseIndex = i; // Original FIFO position
   }
 
-  submissions.sort((a, b) => a.effectiveIndex - b.effectiveIndex);
+  // Sort by net votes (descending), then by submission time (FIFO - ascending)
+  submissions.sort((a, b) => {
+    if (b.netVotes !== a.netVotes) {
+      return b.netVotes - a.netVotes; // Higher net votes first
+    }
+    return a.baseIndex - b.baseIndex; // Earlier submission first (FIFO)
+  });
+
+  // Update effectiveIndex to reflect final position
+  for (let i = 0; i < submissions.length; i++) {
+    submissions[i].effectiveIndex = i;
+  }
+
   return submissions;
 }
 
@@ -1977,6 +1999,10 @@ function updateOasisSchedulerState(updates) {
   if ('is_running' in updates) {
     fields.push('is_running = ?');
     values.push(updates.is_running ? 1 : 0);
+  }
+  if ('is_paused' in updates) {
+    fields.push('is_paused = ?');
+    values.push(updates.is_paused ? 1 : 0);
   }
   if ('current_pattern_submission_id' in updates) {
     fields.push('current_pattern_submission_id = ?');

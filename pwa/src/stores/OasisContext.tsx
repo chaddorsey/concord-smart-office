@@ -119,10 +119,28 @@ interface OasisStatus {
   timeUntilNextLedChange: number
 }
 
+// Oasis drawing state type
+type OasisDrawingState = 'idle' | 'buffering' | 'playing' | 'paused'
+
+// Helper to convert Oasis state to user-friendly label
+export function getOasisStateLabel(state: OasisDrawingState | undefined): string {
+  switch (state) {
+    case 'buffering':
+      return 'Positioning'
+    case 'playing':
+      return 'Drawing'
+    case 'paused':
+      return 'Paused'
+    case 'idle':
+    default:
+      return 'Idle'
+  }
+}
+
 // Real-time status from Home Assistant
 interface HAOasisStatus {
   connected: boolean
-  state: 'idle' | 'playing' | 'paused'
+  state: OasisDrawingState
   currentPattern: {
     name: string
     thumbnailUrl: string | null
@@ -710,5 +728,6 @@ export type {
   OasisStatus,
   HAOasisStatus,
   NativeQueue,
-  NativeQueuePattern
+  NativeQueuePattern,
+  OasisDrawingState
 }

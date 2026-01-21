@@ -235,11 +235,18 @@ export default function Dashboard() {
                     {haStatus?.currentPattern?.name || oasisStatus?.currentPattern?.pattern_name}
                   </p>
                   <div className="flex items-center gap-2 mt-1">
-                    {(haStatus?.state === 'playing' || oasisStatus?.isRunning) ? (
+                    {haStatus?.state === 'playing' ? (
                       <span className="flex items-center gap-1 text-concord-orange text-xs">
                         <span className="w-2 h-2 bg-concord-orange rounded-full animate-pulse" />
                         Drawing
                       </span>
+                    ) : haStatus?.state === 'buffering' ? (
+                      <span className="flex items-center gap-1 text-concord-mango text-xs">
+                        <span className="w-2 h-2 bg-concord-mango rounded-full animate-pulse" />
+                        Positioning
+                      </span>
+                    ) : haStatus?.state === 'paused' ? (
+                      <span className="text-gray-500 text-xs">Paused</span>
                     ) : (
                       <span className="text-gray-400 text-xs">Idle</span>
                     )}

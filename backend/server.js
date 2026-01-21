@@ -171,7 +171,7 @@ const localQueueStore = {
     imageDisplayTime: 30,
     videoLoopCount: 3
   },
-  frameOrientations: { '1': 'horizontal', '2': 'horizontal', '3': 'vertical', '4': 'vertical' },
+  frameOrientations: { '1': 'horizontal', '2': 'vertical', '3': 'horizontal', '4': 'vertical' },
   framePositions: { '1': 0, '2': 0, '3': 0, '4': 0 }
 };
 
@@ -1800,6 +1800,7 @@ app.post('/api/music/backfill-metadata', async (req, res) => {
 // ============================================================================
 
 const oasisService = require('./services/oasisService');
+const oasisSchedulerService = require('./services/oasisSchedulerService');
 
 // Initialize patterns - tries HA first, falls back to mock patterns for development
 oasisService.initializePatterns().catch(err => {
@@ -3066,6 +3067,12 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log('[Scheduler] Starting music scheduler...');
     schedulerService.start().catch(err => {
       console.error('[Scheduler] Failed to start:', err.message);
+    });
+
+    // Start the Oasis pattern scheduler
+    console.log('[OasisScheduler] Starting pattern scheduler...');
+    oasisSchedulerService.start().catch(err => {
+      console.error('[OasisScheduler] Failed to start:', err.message);
     });
   } else {
     console.log('[Scheduler] Skipping scheduler start - HA_TOKEN not configured');
