@@ -365,6 +365,12 @@ async function playTrack(trackUrl) {
       entity_id: SONOS_ENTITY_ID
     });
 
+    // Ensure playback starts (some Sonos states require explicit play command)
+    await new Promise(resolve => setTimeout(resolve, 500));
+    await callService('media_player', 'media_play', {}, {
+      entity_id: SONOS_ENTITY_ID
+    });
+
     return result;
   } catch (error) {
     console.error('[Sonos] Play command error:', error.message);

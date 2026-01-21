@@ -7,9 +7,9 @@ const db = require('../db');
 
 // Volume level mappings (0.0 - 1.0)
 const VOLUME_LEVELS = {
-  super_quiet: 0.20,
-  soft: 0.40,
-  medium: 0.60
+  super_quiet: 0.15,
+  soft: 0.25,
+  medium: 0.40
 };
 
 /**

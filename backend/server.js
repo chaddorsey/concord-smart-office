@@ -90,6 +90,14 @@ app.use(cors({
     if (origin.match(/^https:\/\/[a-z0-9]+\.ngrok-free\.app$/)) {
       return callback(null, true);
     }
+    // Allow local network IPs (10.x.x.x, 192.168.x.x, 172.16-31.x.x)
+    if (origin.match(/^https?:\/\/(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/)) {
+      return callback(null, true);
+    }
+    // Allow concordhq.local
+    if (origin.match(/^https?:\/\/concordhq\.local(:\d+)?$/)) {
+      return callback(null, true);
+    }
     // Allow configured PWA URL
     if (origin === PWA_URL) {
       return callback(null, true);
