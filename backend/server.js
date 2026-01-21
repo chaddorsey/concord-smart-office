@@ -1726,6 +1726,63 @@ app.post('/api/music/scheduler/force-play', authService.requireAuth, async (req,
   }
 });
 
+// Backfill missing metadata for taste tracks
+app.post('/api/music/backfill-metadata', async (req, res) => {
+  const spotifyMetadata = require('./services/spotifyMetadata');
+
+  try {
+    // Get all taste tracks with missing artist info
+    const allTastes = db.getAllTastes();
+    let updated = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const taste of allTastes) {
+      const tracks = db.getTasteTracks(taste.id);
+
+      for (const track of tracks) {
+        if (!track.artist || track.artist === 'Unknown Artist') {
+          console.log(`[Backfill] Fetching metadata for: ${track.track_url}`);
+
+          try {
+            const metadata = await spotifyMetadata.fetchTrackMetadata(track.track_url);
+
+            if (metadata && metadata.artist && metadata.artist !== 'Unknown Artist') {
+              // Update the track in database
+              db.run(`
+                UPDATE taste_tracks
+                SET artist = ?, title = COALESCE(?, title), album_art = ?
+                WHERE id = ?
+              `, [metadata.artist, metadata.title, metadata.thumbnail, track.id]);
+              updated++;
+              console.log(`[Backfill] Updated: "${metadata.title}" by ${metadata.artist}`);
+            } else {
+              failed++;
+              errors.push({ track_url: track.track_url, reason: 'Could not fetch artist' });
+            }
+
+            // Rate limit to avoid hitting Spotify too fast
+            await new Promise(r => setTimeout(r, 200));
+          } catch (error) {
+            failed++;
+            errors.push({ track_url: track.track_url, reason: error.message });
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      updated,
+      failed,
+      errors: errors.slice(0, 10) // Only return first 10 errors
+    });
+  } catch (error) {
+    console.error('[Backfill] Failed:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================================================
 // Oasis Sand Table API Routes
 // ============================================================================

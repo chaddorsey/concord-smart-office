@@ -143,11 +143,26 @@ function getNowPlaying() {
     return null;
   }
 
+  // If artist is missing, try to get it from taste_tracks
+  let artist = playHistory.artist;
+  let title = playHistory.title;
+  let thumbnail = playHistory.album_art;
+
+  if (!artist && playHistory.source === 'taste' && playHistory.taste_id) {
+    const tasteTracks = db.getTasteTracks(playHistory.taste_id);
+    const track = tasteTracks.find(t => t.track_url === playHistory.track_url);
+    if (track) {
+      artist = track.artist || artist;
+      title = track.title || title;
+      thumbnail = track.album_art || thumbnail;
+    }
+  }
+
   return {
     track_url: playHistory.track_url,
-    title: playHistory.title,
-    artist: playHistory.artist,
-    thumbnail: playHistory.album_art,
+    title: title,
+    artist: artist,
+    thumbnail: thumbnail,
     source: playHistory.source,
     taste_id: playHistory.taste_id,
     started_at: playHistory.started_at
