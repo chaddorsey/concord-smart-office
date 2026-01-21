@@ -69,6 +69,8 @@
       flex: 1;
       display: flex;
       gap: 64px;
+      min-height: 0; /* Allow flex child to shrink */
+      overflow: hidden;
     }
 
     /* Staff list */
@@ -76,12 +78,15 @@
       flex: 1;
       display: flex;
       flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .staff-grid {
       display: grid;
       gap: 16px;
       align-content: start;
+      overflow: hidden;
     }
 
     .staff-grid.single-column {
@@ -92,22 +97,31 @@
       grid-template-columns: 1fr 1fr;
     }
 
+    .staff-grid.three-columns {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .staff-grid.gap-small {
+      gap: 10px;
+    }
+
+    .staff-grid.gap-tiny {
+      gap: 8px;
+    }
+
+    /* Base card style - fits 5 per column (~120px height + 12px gap) */
     .staff-card {
       display: flex;
       align-items: center;
-      gap: 20px;
+      gap: 14px;
       background: rgba(255, 255, 255, 0.25);
-      border-radius: 16px;
-      padding: 16px 24px;
-    }
-
-    .staff-card.large {
-      padding: 20px 28px;
+      border-radius: 12px;
+      padding: 14px 18px;
     }
 
     .staff-avatar {
-      width: 80px;
-      height: 80px;
+      width: 88px;
+      height: 88px;
       border-radius: 12px;
       object-fit: cover;
       object-position: top;
@@ -115,15 +129,9 @@
       flex-shrink: 0;
     }
 
-    .staff-card.large .staff-avatar {
-      width: 100px;
-      height: 100px;
-      border-radius: 16px;
-    }
-
     .staff-avatar-placeholder {
-      width: 80px;
-      height: 80px;
+      width: 88px;
+      height: 88px;
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.4);
       display: flex;
@@ -131,44 +139,111 @@
       justify-content: center;
       font-family: 'museo-sans', sans-serif;
       font-weight: 900;
-      font-size: 28px;
+      font-size: 32px;
       color: #1a1a1a;
       flex-shrink: 0;
-    }
-
-    .staff-card.large .staff-avatar-placeholder {
-      width: 100px;
-      height: 100px;
-      border-radius: 16px;
-      font-size: 36px;
     }
 
     .staff-info {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 2px;
+      min-width: 0;
     }
 
     .staff-name {
       font-family: 'museo-sans', sans-serif;
       font-weight: 900;
-      font-size: 32px;
+      font-size: 28px;
       color: #1a1a1a;
-    }
-
-    .staff-card.large .staff-name {
-      font-size: 40px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .staff-time {
       font-family: 'museo-sans', sans-serif;
       font-weight: 100;
-      font-size: 20px;
+      font-size: 16px;
       color: rgba(26, 26, 26, 0.7);
     }
 
+    /* Large size cards (single column, fewer people) */
+    .staff-card.large {
+      gap: 20px;
+      border-radius: 14px;
+      padding: 18px 24px;
+    }
+
+    .staff-card.large .staff-avatar,
+    .staff-card.large .staff-avatar-placeholder {
+      width: 100px;
+      height: 100px;
+      border-radius: 14px;
+    }
+
+    .staff-card.large .staff-avatar-placeholder {
+      font-size: 36px;
+    }
+
+    .staff-card.large .staff-name {
+      font-size: 36px;
+    }
+
     .staff-card.large .staff-time {
+      font-size: 20px;
+    }
+
+    /* Compact cards for 3-column layout - keeps avatar large, reduces padding */
+    .staff-card.compact {
+      gap: 10px;
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+
+    .staff-card.compact .staff-avatar,
+    .staff-card.compact .staff-avatar-placeholder {
+      width: 80px;
+      height: 80px;
+      border-radius: 10px;
+    }
+
+    .staff-card.compact .staff-avatar-placeholder {
+      font-size: 28px;
+    }
+
+    .staff-card.compact .staff-name {
+      font-size: 22px;
+    }
+
+    .staff-card.compact .staff-time {
+      font-size: 14px;
+    }
+
+    /* Small compact for many people in 3 columns */
+    .staff-card.compact-small {
+      gap: 8px;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .staff-card.compact-small .staff-avatar,
+    .staff-card.compact-small .staff-avatar-placeholder {
+      width: 68px;
+      height: 68px;
+      border-radius: 8px;
+    }
+
+    .staff-card.compact-small .staff-avatar-placeholder {
       font-size: 24px;
+    }
+
+    .staff-card.compact-small .staff-name {
+      font-size: 18px;
+    }
+
+    .staff-card.compact-small .staff-time {
+      font-size: 12px;
     }
 
     /* Empty state */
@@ -196,6 +271,7 @@
     /* CTA section */
     .cta-section {
       width: 480px;
+      flex-shrink: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -342,6 +418,35 @@
       return name.split(' ')[0];
     }
 
+    // Layout configurations - 5 cards fit per column vertically
+    const ROWS_PER_COLUMN = 5;
+
+    // Determine optimal layout based on number of people
+    function getLayout(count) {
+      // Single column, large cards (1-5 people)
+      if (count <= 5) {
+        return { columns: 1, size: 'large', gap: '' };
+      }
+
+      // Two columns, regular cards (6-10 people)
+      if (count <= 10) {
+        return { columns: 2, size: '', gap: '' };
+      }
+
+      // Three columns, regular cards (11-15 people)
+      if (count <= 15) {
+        return { columns: 3, size: '', gap: 'gap-small' };
+      }
+
+      // Three columns, compact cards (16-21 people)
+      if (count <= 21) {
+        return { columns: 3, size: 'compact', gap: 'gap-small' };
+      }
+
+      // Three columns, compact-small cards (22+ people, max ~30)
+      return { columns: 3, size: 'compact-small', gap: 'gap-tiny', maxDisplay: 30 };
+    }
+
     // Render staff list
     function renderStaff(people) {
       const grid = document.getElementById('staff-grid');
@@ -363,11 +468,12 @@
       grid.style.display = 'grid';
       emptyState.style.display = 'none';
 
-      // Determine layout: single column for <= 10, two columns for more
-      const useTwoColumns = people.length > 10;
-      const isLarge = !useTwoColumns;
+      // Get optimal layout
+      const layout = getLayout(people.length);
 
-      grid.className = useTwoColumns ? 'staff-grid two-columns' : 'staff-grid single-column';
+      // Set grid classes
+      const columnClass = layout.columns === 3 ? 'three-columns' : layout.columns === 2 ? 'two-columns' : 'single-column';
+      grid.className = `staff-grid ${columnClass} ${layout.gap}`.trim();
 
       // Sort by check-in time (most recent first)
       const sorted = [...people].sort((a, b) => {
@@ -376,8 +482,9 @@
         return new Date(b.checked_in_at).getTime() - new Date(a.checked_in_at).getTime();
       });
 
-      // Limit to 20 people
-      const display = sorted.slice(0, 20);
+      // Limit display if needed
+      const maxDisplay = layout.maxDisplay || 20;
+      const display = sorted.slice(0, maxDisplay);
 
       grid.innerHTML = display.map(person => {
         const firstName = getFirstName(person.user_name || 'Guest');
@@ -388,7 +495,7 @@
           null;
 
         return `
-          <div class="staff-card ${isLarge ? 'large' : ''}">
+          <div class="staff-card ${layout.size}">
             ${avatarUrl ?
               `<img src="${avatarUrl}" alt="${firstName}" class="staff-avatar">` :
               `<div class="staff-avatar-placeholder">${initials}</div>`
