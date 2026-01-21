@@ -18,6 +18,9 @@ let pollInterval = null;
 let isProcessing = false;
 let consecutiveFailures = 0;
 let lastPlayedTrackUrl = null;
+let lastKnownPosition = 0;
+let trackStartTime = null;
+const MAX_TRACK_DURATION = 10 * 60 * 1000; // 10 minutes max before forcing next track
 
 /**
  * Extract Spotify track ID from various URL formats
@@ -206,6 +209,31 @@ async function processPlaybackState() {
     console.log(`[Scheduler] Track drift detected! Expected: ${lastTrackId}, Playing: ${currentTrackId}`);
   }
 
+  // NEW: Detect track looping (position reset) when duration is unknown
+  // If track is playing, we have a session, and position jumped backwards significantly
+  const currentPosition = playbackState.mediaPosition || 0;
+  const positionReset = playbackState.isPlaying &&
+    schedulerState.current_play_id &&
+    lastKnownPosition > 30 && // Was past 30 seconds
+    currentPosition < 10 && // Now near start
+    lastTrackId === currentTrackId; // Same track
+
+  if (positionReset) {
+    console.log(`[Scheduler] Track position reset detected (${lastKnownPosition}s -> ${currentPosition}s), track likely finished`);
+  }
+
+  // Update last known position
+  lastKnownPosition = currentPosition;
+
+  // NEW: Check for max duration timeout (fallback when duration unknown)
+  const trackTimedOut = schedulerState.current_play_id &&
+    trackStartTime &&
+    (Date.now() - trackStartTime) > MAX_TRACK_DURATION;
+
+  if (trackTimedOut) {
+    console.log(`[Scheduler] Track exceeded max duration (${MAX_TRACK_DURATION / 1000}s), moving to next`);
+  }
+
   // Check if our track is paused (we have a session but Sonos is paused on our track)
   const ourTrackIsPaused = playbackState.state === 'paused' &&
     schedulerState.current_play_id &&
@@ -213,7 +241,7 @@ async function processPlaybackState() {
     currentTrackId &&
     lastTrackId === currentTrackId;
 
-  const needsNewTrack = trackFinished || isIdle || hasExternalContent || trackDrifted;
+  const needsNewTrack = trackFinished || isIdle || hasExternalContent || trackDrifted || positionReset || trackTimedOut;
 
   if (needsNewTrack) {
     if (hasExternalContent) {
@@ -271,6 +299,8 @@ async function playNextTrack() {
 
     // Update scheduler state
     lastPlayedTrackUrl = nextTrack.trackUrl;
+    trackStartTime = Date.now();
+    lastKnownPosition = 0;
     db.updateSchedulerState({
       current_play_id: playId
     });
