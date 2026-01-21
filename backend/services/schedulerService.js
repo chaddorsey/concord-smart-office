@@ -57,6 +57,16 @@ async function start() {
     db.updateSchedulerState({ is_running: true, is_paused: false });
   }
 
+  // Restore lastPlayedTrackUrl from database if we have a current play session
+  // This is critical for drift detection to work after restarts
+  if (state.current_play_id) {
+    const playHistory = db.getPlayHistoryById(state.current_play_id);
+    if (playHistory && playHistory.track_url) {
+      lastPlayedTrackUrl = playHistory.track_url;
+      console.log(`[Scheduler] Restored last track: ${getTrackId(lastPlayedTrackUrl)}`);
+    }
+  }
+
   // Start the polling loop
   if (!pollInterval) {
     pollInterval = setInterval(tick, POLL_INTERVAL);
@@ -184,25 +194,54 @@ async function processPlaybackState() {
     !schedulerState.current_play_id &&
     !lastTrackId; // Only if we've never played anything
 
-  const needsNewTrack = trackFinished || isIdle || hasExternalContent;
+  // NEW: Check if Sonos drifted to a different track than we expected
+  // This happens when Sonos has a pre-existing queue and plays the next item
+  const trackDrifted = playbackState.isPlaying &&
+    schedulerState.current_play_id &&
+    lastTrackId &&
+    currentTrackId &&
+    lastTrackId !== currentTrackId;
+
+  if (trackDrifted) {
+    console.log(`[Scheduler] Track drift detected! Expected: ${lastTrackId}, Playing: ${currentTrackId}`);
+  }
+
+  // Check if our track is paused (we have a session but Sonos is paused on our track)
+  const ourTrackIsPaused = playbackState.state === 'paused' &&
+    schedulerState.current_play_id &&
+    lastTrackId &&
+    currentTrackId &&
+    lastTrackId === currentTrackId;
+
+  const needsNewTrack = trackFinished || isIdle || hasExternalContent || trackDrifted;
 
   if (needsNewTrack) {
     if (hasExternalContent) {
       console.log('[Scheduler] Taking over from external playback...');
+    } else if (trackDrifted) {
+      console.log('[Scheduler] Sonos drifted to different track, taking back control...');
     } else {
       console.log('[Scheduler] Track finished or idle, selecting next track...');
     }
 
     // Finalize current play if there is one
+    // Use 'skipped' for drift since 'drifted' isn't in the allowed result values
     if (schedulerState.current_play_id) {
-      finalizeCurrentPlay(schedulerState.current_play_id, 'completed');
+      finalizeCurrentPlay(schedulerState.current_play_id, trackDrifted ? 'skipped' : 'completed');
     }
 
     // Select and play next track
     await playNextTrack();
+  } else if (ourTrackIsPaused) {
+    // Our track is paused - resume playback
+    console.log('[Scheduler] Our track is paused, resuming playback...');
+    try {
+      await sonosService.play();
+    } catch (error) {
+      console.error('[Scheduler] Failed to resume:', error.message);
+    }
   } else if (playbackState.isPlaying && schedulerState.current_play_id) {
-    // Track is playing and we have an active session - nothing to do
-    // We trust that our track is playing until it finishes or goes idle
+    // Track is playing and matches what we expect - nothing to do
   }
 
   // Update volume based on presence preferences

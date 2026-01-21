@@ -1664,6 +1664,18 @@ app.get('/api/music/scheduler/status', (req, res) => {
   }
 });
 
+// Debug: Get raw Sonos playback state
+app.get('/api/music/sonos-state', async (req, res) => {
+  try {
+    const sonosService = require('./services/sonosService');
+    const state = await sonosService.getPlaybackState();
+    res.json(state);
+  } catch (error) {
+    console.error('[Sonos] Failed to get state:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Pause the scheduler
 app.post('/api/music/scheduler/pause', authService.requireAuth, (req, res) => {
   try {

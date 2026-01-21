@@ -355,18 +355,38 @@ async function playTrack(trackUrl) {
   console.log(`[Sonos] Playing track: ${sonosUri}`);
 
   try {
-    // Use enqueue: 'replace' to clear queue and play immediately
-    // This replaces any existing queue with our track
+    // Step 1: Stop any current playback
+    console.log('[Sonos] Stopping current playback...');
+    await callService('media_player', 'media_stop', {}, {
+      entity_id: SONOS_ENTITY_ID
+    });
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Step 2: Clear the existing queue (handles cloud queues from Spotify/Alexa)
+    console.log('[Sonos] Clearing queue...');
+    try {
+      await callService('media_player', 'clear_playlist', {}, {
+        entity_id: SONOS_ENTITY_ID
+      });
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (clearError) {
+      // Some Sonos setups may not support clear_playlist, continue anyway
+      console.log('[Sonos] clear_playlist not available, continuing...');
+    }
+
+    // Step 3: Add our track to queue
+    console.log('[Sonos] Adding track to queue...');
     const result = await callService('media_player', 'play_media', {
       media_content_id: sonosUri,
       media_content_type: 'music',
-      enqueue: 'replace'
+      enqueue: 'play'
     }, {
       entity_id: SONOS_ENTITY_ID
     });
 
-    // Ensure playback starts (some Sonos states require explicit play command)
+    // Step 4: Explicitly start playback (enqueue:'play' doesn't always start)
     await new Promise(resolve => setTimeout(resolve, 500));
+    console.log('[Sonos] Starting playback...');
     await callService('media_player', 'media_play', {}, {
       entity_id: SONOS_ENTITY_ID
     });
