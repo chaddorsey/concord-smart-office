@@ -443,10 +443,11 @@ export function MusicProvider({ children }: { children: ReactNode }) {
       loadNowPlaying()
       loadQueue()
       loadSchedulerStatus()
+      loadStats()
     }, 10000) // Every 10 seconds
 
     return () => clearInterval(interval)
-  }, [loadNowPlaying, loadQueue, loadSchedulerStatus])
+  }, [loadNowPlaying, loadQueue, loadSchedulerStatus, loadStats])
 
   // Reload user preferences when auth changes
   useEffect(() => {

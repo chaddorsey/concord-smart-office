@@ -20,7 +20,9 @@ let consecutiveFailures = 0;
 let lastPlayedTrackUrl = null;
 let lastKnownPosition = 0;
 let trackStartTime = null;
+let consecutiveDrifts = 0;
 const MAX_TRACK_DURATION = 10 * 60 * 1000; // 10 minutes max before forcing next track
+const MAX_CONSECUTIVE_DRIFTS = 3; // Pause if Sonos keeps ignoring our commands
 
 /**
  * Extract Spotify track ID from various URL formats
@@ -206,7 +208,19 @@ async function processPlaybackState() {
     lastTrackId !== currentTrackId;
 
   if (trackDrifted) {
-    console.log(`[Scheduler] Track drift detected! Expected: ${lastTrackId}, Playing: ${currentTrackId}`);
+    consecutiveDrifts++;
+    console.log(`[Scheduler] Track drift detected! Expected: ${lastTrackId}, Playing: ${currentTrackId} (drift #${consecutiveDrifts})`);
+
+    // If Sonos keeps ignoring our commands, pause to prevent rapid loop
+    if (consecutiveDrifts >= MAX_CONSECUTIVE_DRIFTS) {
+      console.error(`[Scheduler] Sonos not responding after ${consecutiveDrifts} attempts - pausing scheduler`);
+      console.error('[Scheduler] Manual intervention needed: check Sonos/Spotify connection');
+      pause();
+      return;
+    }
+  } else if (playbackState.isPlaying && lastTrackId === currentTrackId) {
+    // Our track is playing correctly, reset drift counter
+    consecutiveDrifts = 0;
   }
 
   // NEW: Detect track looping (position reset) when duration is unknown

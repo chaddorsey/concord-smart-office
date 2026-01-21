@@ -1433,6 +1433,7 @@ app.get('/api/pixabay/categories', (req, res) => {
 
 const musicService = require('./services/musicService');
 const schedulerService = require('./services/schedulerService');
+const sonosService = require('./services/sonosService');
 
 // Get all available tastes
 app.get('/api/music/tastes', (req, res) => {
@@ -1485,7 +1486,7 @@ app.get('/api/me/volume', authService.requireAuth, (req, res) => {
 });
 
 // Set current user's volume preference
-app.post('/api/me/volume', authService.requireAuth, (req, res) => {
+app.post('/api/me/volume', authService.requireAuth, async (req, res) => {
   try {
     const { volume } = req.body;
 
@@ -1496,7 +1497,18 @@ app.post('/api/me/volume', authService.requireAuth, (req, res) => {
     }
 
     musicService.setUserVolume(req.user.id, volume);
-    res.json({ volume });
+
+    // Immediately update Sonos volume with new averaged value
+    try {
+      const newVolumeValue = musicService.computeVolumeValue();
+      await sonosService.setVolume(newVolumeValue);
+      console.log(`[Music] Immediate volume update: ${newVolumeValue.toFixed(3)}`);
+    } catch (volErr) {
+      console.error('[Music] Failed to update Sonos volume:', volErr.message);
+      // Don't fail the request - preference was saved successfully
+    }
+
+    res.json({ volume, current_volume: musicService.computeVolumeLevel() });
   } catch (error) {
     console.error('[Music] Failed to set volume:', error);
     res.status(400).json({ error: error.message });
