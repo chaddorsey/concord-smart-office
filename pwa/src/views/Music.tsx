@@ -267,7 +267,7 @@ export default function Music() {
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="p-4 border-b border-gray-100">
             <h2 className="font-semibold text-gray-900">Volume Preference</h2>
-            <p className="text-sm text-gray-500 mt-1">Volume incorporates preferences of everyone checked in</p>
+            <p className="text-sm text-gray-500 mt-1">Volume averaged across checked-in users</p>
           </div>
           <div className="p-4 flex gap-2">
             {(['super_quiet', 'soft', 'medium'] as VolumeLevel[]).map(vol => (
