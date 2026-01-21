@@ -19,6 +19,7 @@ interface PresenceInfo {
 }
 
 const BACKEND_URL = ''
+const STORAGE_KEY = 'concordhq_last_checkin_email'
 
 export default function ScanIn() {
   const navigate = useNavigate()
@@ -106,6 +107,9 @@ export default function ScanIn() {
 
       const data = await res.json()
       setSuccessMessage(`${data.user.name} checked in!`)
+
+      // Save email for quick check-in next time
+      localStorage.setItem(STORAGE_KEY, selectedEmail)
 
       // Refresh data and redirect after delay
       await fetchData()
