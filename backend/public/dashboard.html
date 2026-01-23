@@ -127,31 +127,31 @@
     .staff-grid {
       display: flex;
       flex-wrap: wrap;
-      gap: 1rem;
+      gap: 0.75rem;
     }
 
     .staff-card {
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      padding: 0.5rem;
-      border-radius: 8px;
-      background: var(--cc-gray-light);
-      min-width: 180px;
+      padding: 0.6rem 0.8rem;
+      border-radius: 10px;
+      background: rgba(255, 195, 32, 0.2);
+      min-width: 160px;
     }
 
     .staff-avatar {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--cc-cyan), var(--cc-purple));
+      width: 52px;
+      height: 52px;
+      border-radius: 8px;
+      background: rgba(255, 195, 32, 0.3);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: var(--font-heading);
-      font-size: 1.25rem;
-      font-weight: 600;
-      color: white;
+      font-family: var(--font-body);
+      font-size: 1.1rem;
+      font-weight: 900;
+      color: var(--cc-black);
       flex-shrink: 0;
       overflow: hidden;
     }
@@ -160,16 +160,29 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+      object-position: top;
+    }
+
+    .staff-avatar span {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
     }
 
     .staff-info .name {
-      font-weight: 600;
+      font-family: var(--font-body);
+      font-weight: 900;
       font-size: 0.95rem;
+      color: var(--cc-black);
     }
 
     .staff-info .time {
-      font-size: 0.8rem;
-      color: var(--cc-gray-dark);
+      font-family: var(--font-body);
+      font-weight: 100;
+      font-size: 0.75rem;
+      color: rgba(0, 0, 0, 0.6);
     }
 
     .empty-state {
@@ -639,20 +652,25 @@
         }
 
         container.innerHTML = present.map(p => {
-          const name = p.user_name || p.user_email?.split('@')[0] || 'Unknown';
-          const initials = getInitials(name);
+          const fullName = p.user_name || p.user_email?.split('@')[0] || 'Unknown';
+          const firstName = fullName.split(' ')[0];
+          const initials = getInitials(fullName);
           const email = (p.user_email || '').toLowerCase();
           // First check cached avatar, then try avatar_url from user record
           const avatarUrl = STAFF_AVATARS[email] || p.avatar_url;
           const avatarContent = avatarUrl
-            ? `<img src="${avatarUrl}" alt="${name}" onerror="this.parentElement.textContent='${initials}'">`
-            : initials;
+            ? `<img src="${avatarUrl}" alt="${firstName}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">`
+            : '';
+          const placeholderStyle = avatarUrl ? 'display:none' : 'display:flex';
 
           return `
             <div class="staff-card">
-              <div class="staff-avatar">${avatarContent}</div>
+              <div class="staff-avatar">
+                ${avatarContent}
+                <span style="${placeholderStyle}">${initials}</span>
+              </div>
               <div class="staff-info">
-                <div class="name">${name}</div>
+                <div class="name">${firstName}</div>
                 <div class="time">${formatArrival(p.checked_in_at)}</div>
               </div>
             </div>
