@@ -5,10 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="refresh" content="300">
   <title>Office Dashboard - Concord Consortium</title>
-  <!-- Museo Sans approximation using system fonts; replace with Adobe Fonts embed for production -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@300;400;600;700&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <!-- Adobe Fonts (Museo & Museo Sans) -->
+  <link rel="stylesheet" href="https://use.typekit.net/jzs4ixz.css">
   <style>
     :root {
       --cc-black: #000000;
@@ -17,12 +15,13 @@
       --cc-cyan: #0693e3;
       --cc-purple: #9b51e0;
       --cc-green: #00d084;
+      --cc-orange: #ff6900;
       --cc-gray-light: #f5f5f5;
       --cc-gray: #e0e0e0;
       --cc-gray-dark: #666666;
-      /* Using Nunito as Museo Sans approximation */
-      --font-heading: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
-      --font-body: 'Nunito Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      /* Museo font families from Adobe Typekit */
+      --font-heading: 'museo', Georgia, serif;
+      --font-body: 'museo-sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -333,78 +332,125 @@
     .map-container {
       position: relative;
       width: 100%;
-      max-height: 300px;
-      overflow: hidden;
+      padding: 20px 0;
+    }
+
+    .map-wrapper {
+      position: relative;
+      width: 100%;
     }
 
     .map-container svg, .map-container img {
+      display: block;
       width: 100%;
       height: auto;
     }
 
+    .room-labels-overlay,
+    .people-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+    }
+
+    /* Room labels - fixed at top center of each room */
+    .room-label {
+      position: absolute;
+      font-family: var(--font-heading);
+      font-weight: 700;
+      font-size: clamp(0.9rem, 2vw, 1.5rem);
+      color: var(--cc-black);
+      background: transparent;
+      padding: 0;
+      text-align: center;
+      line-height: 1.1;
+      transform: translateX(-50%);
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* Person icons - SVG avatar styling */
     .map-person {
       position: absolute;
+      pointer-events: auto;
       display: flex;
       flex-direction: column;
       align-items: center;
-      transform: translate(-50%, -100%);
+      transform: translate(-50%, -50%);
+      z-index: 10;
     }
 
     .map-person-icon {
-      width: 32px;
-      height: 32px;
-      background: var(--cc-cyan);
-      border-radius: 50%;
-      border: 2px solid white;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      width: clamp(24px, 4vw, 48px);
+      height: clamp(21px, 3.5vw, 42px);
       position: relative;
       display: flex;
       align-items: center;
       justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease;
     }
 
-    /* BLE-tracked users: orange indicator */
-    .map-person-icon.ble-tracked {
-      background: #f97316;
-      border-color: #fed7aa;
+    .map-person-icon:hover {
+      transform: scale(1.15);
+      z-index: 20;
     }
 
-    /* Untracked users: gray with dashed border */
-    .map-person-icon.untracked {
-      background: var(--cc-gray-dark);
-      border: 2px dashed var(--cc-gray);
+    .map-person-icon img.person-avatar-svg {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      /* Default cyan color using filter */
+      filter: brightness(0) saturate(100%) invert(43%) sepia(98%) saturate(1552%) hue-rotate(176deg) brightness(96%) contrast(101%);
     }
 
-    .map-person-icon.unknown {
-      background: transparent;
-      border: 2px dashed var(--cc-gray-dark);
+    /* BLE-tracked users: orange */
+    .map-person-icon.ble-tracked img.person-avatar-svg {
+      filter: brightness(0) saturate(100%) invert(50%) sepia(88%) saturate(2193%) hue-rotate(4deg) brightness(103%) contrast(105%);
+    }
+
+    /* Untracked users: gray */
+    .map-person-icon.untracked img.person-avatar-svg {
+      filter: brightness(0) saturate(100%) invert(40%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(90%);
+      opacity: 0.7;
+    }
+
+    .map-person-icon.unknown img.person-avatar-svg {
+      filter: brightness(0) saturate(100%) invert(40%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(90%);
+      opacity: 0.5;
+    }
+
+    /* Name label below avatar */
+    .map-person-name {
+      font-family: var(--font-body);
+      font-size: clamp(0.5rem, 1.2vw, 0.75rem);
+      font-weight: 600;
+      color: var(--cc-black);
+      white-space: nowrap;
+      text-align: center;
+      margin-top: 2px;
+      text-shadow: 0 0 3px white, 0 0 3px white, 0 0 3px white;
     }
 
     /* Signal strength indicator dot */
     .signal-indicator {
       position: absolute;
-      bottom: -2px;
-      right: -2px;
-      width: 10px;
-      height: 10px;
+      bottom: 0px;
+      right: 0px;
+      width: clamp(6px, 1vw, 10px);
+      height: clamp(6px, 1vw, 10px);
       border-radius: 50%;
       border: 1.5px solid white;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.3);
     }
 
     .signal-indicator.strong { background: #22c55e; }
     .signal-indicator.good { background: #eab308; }
-    .signal-indicator.weak { background: #f97316; }
+    .signal-indicator.weak { background: var(--cc-orange); }
     .signal-indicator.poor { background: #ef4444; }
-
-    .map-person-label {
-      font-size: 0.7rem;
-      font-weight: 600;
-      background: rgba(255,255,255,0.9);
-      padding: 0.125rem 0.375rem;
-      border-radius: 4px;
-      margin-top: 0.25rem;
-      white-space: nowrap;
-    }
 
     .map-room-overlay {
       position: absolute;
@@ -790,6 +836,20 @@
     // =========================================================================
     let mapLoaded = false;
 
+    // Room definitions with label positions (% of SVG dimensions)
+    // label_x, label_y: position for room label at top-center of room
+    // center_x, center_y: center point for placing people (below labels)
+    const ROOM_CONFIG = {
+      museum:       { label: 'Museum',              label_x: 8,   label_y: 5,   center_x: 8,   center_y: 20 },
+      cafe:         { label: 'Café',                label_x: 31,  label_y: 5,   center_x: 31,  center_y: 20 },
+      shop:         { label: 'Shop',                label_x: 92,  label_y: 5,   center_x: 92,  center_y: 20 },
+      entry:        { label: 'Entry',               label_x: 5,   label_y: 45,  center_x: 5,   center_y: 55 },
+      bubble:       { label: 'Bubble<br>Room',      label_x: 62,  label_y: 68,  center_x: 62,  center_y: 90 },
+      aviary:       { label: 'Aviary',              label_x: 72,  label_y: 72,  center_x: 72,  center_y: 85 },
+      wonder:       { label: 'Wonder<br>Room',      label_x: 83,  label_y: 50,  center_x: 83,  center_y: 72 },
+      workstations: { label: 'Work<br>Stations',    label_x: 92,  label_y: 50,  center_x: 92,  center_y: 72 }
+    };
+
     async function loadMap() {
       const mapContainer = document.getElementById('map-container');
 
@@ -800,19 +860,24 @@
         });
         const svgText = await res.text();
 
+        // Generate room labels HTML
+        const roomLabelsHtml = Object.entries(ROOM_CONFIG).map(([id, room]) => `
+          <div class="room-label" style="left: ${room.label_x}%; top: ${room.label_y}%;">${room.label}</div>
+        `).join('');
+
         mapContainer.innerHTML = `
           <div class="map-wrapper" style="position: relative;">
             ${svgText}
+            <div class="room-labels-overlay" id="room-labels-overlay">${roomLabelsHtml}</div>
             <div class="people-overlay" id="people-overlay"></div>
           </div>
         `;
 
-        // Style the SVG
+        // Style the SVG to fill width and maintain aspect ratio
         const svg = mapContainer.querySelector('svg');
         if (svg) {
           svg.style.width = '100%';
           svg.style.height = 'auto';
-          svg.style.maxHeight = '280px';
         }
 
         mapLoaded = true;
@@ -856,45 +921,70 @@
 
         if (!overlay) return;
 
-        // Render located people as markers on the map
-        // Uses BLE tracking indicators: orange for tracked, gray for untracked
-        // Opacity fades based on signal_certainty for BLE-tracked users
-        overlay.innerHTML = data.located.map(person => {
-          const name = person.user_name || person.user_email?.split('@')[0] || '?';
-          const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-          const email = (person.user_email || '').toLowerCase();
-          const avatarUrl = STAFF_AVATARS[email] || person.avatar_url;
+        // Group people by room for distribution
+        const roomGroups = {};
+        data.located.forEach(person => {
+          const roomId = person.room_id || 'unknown';
+          if (!roomGroups[roomId]) roomGroups[roomId] = [];
+          roomGroups[roomId].push(person);
+        });
 
-          // Determine tracking status and icon class
-          const isTracked = person.is_tracked === true;
-          const iconClass = isTracked ? 'ble-tracked' : 'untracked';
+        // Calculate positions with distribution for multiple people per room
+        const peopleHtml = [];
+        Object.entries(roomGroups).forEach(([roomId, people]) => {
+          const roomConfig = ROOM_CONFIG[roomId];
 
-          // Calculate opacity based on signal certainty (0.5-1.0 range for visibility)
-          // BLE-tracked users fade based on certainty; untracked users stay solid
-          const certainty = person.signal_certainty || 0;
-          const opacity = isTracked ? Math.max(0.5, certainty) : 1;
+          people.forEach((person, index) => {
+            const name = person.user_name || person.user_email?.split('@')[0] || '?';
+            const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+            const email = (person.user_email || '').toLowerCase();
+            const avatarUrl = STAFF_AVATARS[email] || person.avatar_url;
 
-          // Get signal strength indicator class for BLE-tracked users
-          const signalClass = isTracked ? getSignalStrengthClass(certainty) : '';
+            // Use ROOM_CONFIG positions if available, with distribution offset
+            let posX, posY;
+            if (roomConfig) {
+              // Distribute people in a grid pattern around room center
+              const cols = Math.ceil(Math.sqrt(people.length));
+              const row = Math.floor(index / cols);
+              const col = index % cols;
+              const spacing = 4; // % spacing between people
+              const offsetX = (col - (cols - 1) / 2) * spacing;
+              const offsetY = row * spacing;
+              posX = roomConfig.center_x + offsetX;
+              posY = roomConfig.center_y + offsetY;
+            } else {
+              // Fallback to server-provided position
+              posX = person.position.x;
+              posY = person.position.y;
+            }
 
-          // Tooltip shows tracking status and signal info
-          const tooltip = isTracked
-            ? `${name} - ${person.room} (BLE tracked, ${Math.round(certainty * 100)}% certainty)`
-            : `${name} - ${person.room} (manual location)`;
+            // Determine tracking status and icon class
+            const isTracked = person.is_tracked === true;
+            const iconClass = isTracked ? 'ble-tracked' : 'untracked';
 
-          return `
-            <div class="map-person" style="left: ${person.position.x}%; top: ${person.position.y}%; opacity: ${opacity};" title="${tooltip}">
-              <div class="map-person-icon ${iconClass}">
-                ${avatarUrl
-                  ? `<img src="${avatarUrl}" alt="${initials}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.parentElement.innerHTML='<span style=\\'color:white;font-size:10px;font-weight:bold;\\'>${initials}</span>'">`
-                  : `<span style="color:white;font-size:10px;font-weight:bold;">${initials}</span>`
-                }
-                ${isTracked ? `<div class="signal-indicator ${signalClass}"></div>` : ''}
+            // Calculate opacity based on signal certainty
+            const certainty = person.signal_certainty || 0;
+            const opacity = isTracked ? Math.max(0.5, certainty) : 1;
+
+            // Get signal strength indicator class
+            const signalClass = isTracked ? getSignalStrengthClass(certainty) : '';
+
+            // Get first name only for label
+            const firstName = name.split(' ')[0];
+
+            peopleHtml.push(`
+              <div class="map-person" style="left: ${posX}%; top: ${posY}%; opacity: ${opacity};">
+                <div class="map-person-icon ${iconClass}">
+                  <img src="/person-map-avatar.svg" alt="${name}" class="person-avatar-svg">
+                  ${isTracked ? `<div class="signal-indicator ${signalClass}"></div>` : ''}
+                </div>
+                <div class="map-person-name">${firstName}</div>
               </div>
-              <div class="map-person-label">${name.split(' ')[0]}</div>
-            </div>
-          `;
-        }).join('');
+            `);
+          });
+        });
+
+        overlay.innerHTML = peopleHtml.join('');
 
         // Render unlocated people in the list below
         if (data.unlocated.length > 0) {
@@ -902,7 +992,6 @@
           untrackedPeople.innerHTML = data.unlocated.map(person => {
             const name = person.user_name || person.user_email?.split('@')[0] || 'Unknown';
             const isTracked = person.is_tracked === true;
-            // Show beacon indicator if user has BLE beacon but location unknown
             const beaconIndicator = isTracked ? ' 📡' : '';
             return `<span class="untracked-person">${name}${beaconIndicator}</span>`;
           }).join('');
