@@ -357,12 +357,44 @@
       border-radius: 50%;
       border: 2px solid white;
       box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* BLE-tracked users: orange indicator */
+    .map-person-icon.ble-tracked {
+      background: #f97316;
+      border-color: #fed7aa;
+    }
+
+    /* Untracked users: gray with dashed border */
+    .map-person-icon.untracked {
+      background: var(--cc-gray-dark);
+      border: 2px dashed var(--cc-gray);
     }
 
     .map-person-icon.unknown {
       background: transparent;
       border: 2px dashed var(--cc-gray-dark);
     }
+
+    /* Signal strength indicator dot */
+    .signal-indicator {
+      position: absolute;
+      bottom: -2px;
+      right: -2px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1.5px solid white;
+    }
+
+    .signal-indicator.strong { background: #22c55e; }
+    .signal-indicator.good { background: #eab308; }
+    .signal-indicator.weak { background: #f97316; }
+    .signal-indicator.poor { background: #ef4444; }
 
     .map-person-label {
       font-size: 0.7rem;
@@ -798,6 +830,17 @@
       }
     }
 
+    /**
+     * Get signal strength class based on certainty (0-1)
+     * Used for BLE-tracked users to show signal quality
+     */
+    function getSignalStrengthClass(certainty) {
+      if (certainty >= 0.8) return 'strong';
+      if (certainty >= 0.6) return 'good';
+      if (certainty >= 0.4) return 'weak';
+      return 'poor';
+    }
+
     async function updateMapPeople() {
       if (!mapLoaded) return;
 
@@ -814,19 +857,39 @@
         if (!overlay) return;
 
         // Render located people as markers on the map
+        // Uses BLE tracking indicators: orange for tracked, gray for untracked
+        // Opacity fades based on signal_certainty for BLE-tracked users
         overlay.innerHTML = data.located.map(person => {
           const name = person.user_name || person.user_email?.split('@')[0] || '?';
           const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
           const email = (person.user_email || '').toLowerCase();
           const avatarUrl = STAFF_AVATARS[email] || person.avatar_url;
 
+          // Determine tracking status and icon class
+          const isTracked = person.is_tracked === true;
+          const iconClass = isTracked ? 'ble-tracked' : 'untracked';
+
+          // Calculate opacity based on signal certainty (0.5-1.0 range for visibility)
+          // BLE-tracked users fade based on certainty; untracked users stay solid
+          const certainty = person.signal_certainty || 0;
+          const opacity = isTracked ? Math.max(0.5, certainty) : 1;
+
+          // Get signal strength indicator class for BLE-tracked users
+          const signalClass = isTracked ? getSignalStrengthClass(certainty) : '';
+
+          // Tooltip shows tracking status and signal info
+          const tooltip = isTracked
+            ? `${name} - ${person.room} (BLE tracked, ${Math.round(certainty * 100)}% certainty)`
+            : `${name} - ${person.room} (manual location)`;
+
           return `
-            <div class="map-person" style="left: ${person.position.x}%; top: ${person.position.y}%;" title="${name} - ${person.room}">
-              <div class="map-person-icon" style="background: ${person.roomColor || '#0693e3'};">
+            <div class="map-person" style="left: ${person.position.x}%; top: ${person.position.y}%; opacity: ${opacity};" title="${tooltip}">
+              <div class="map-person-icon ${iconClass}">
                 ${avatarUrl
-                  ? `<img src="${avatarUrl}" alt="${initials}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.parentElement.textContent='${initials}'">`
+                  ? `<img src="${avatarUrl}" alt="${initials}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" onerror="this.parentElement.innerHTML='<span style=\\'color:white;font-size:10px;font-weight:bold;\\'>${initials}</span>'">`
                   : `<span style="color:white;font-size:10px;font-weight:bold;">${initials}</span>`
                 }
+                ${isTracked ? `<div class="signal-indicator ${signalClass}"></div>` : ''}
               </div>
               <div class="map-person-label">${name.split(' ')[0]}</div>
             </div>
@@ -838,7 +901,10 @@
           untrackedSection.style.display = 'block';
           untrackedPeople.innerHTML = data.unlocated.map(person => {
             const name = person.user_name || person.user_email?.split('@')[0] || 'Unknown';
-            return `<span class="untracked-person">${name}</span>`;
+            const isTracked = person.is_tracked === true;
+            // Show beacon indicator if user has BLE beacon but location unknown
+            const beaconIndicator = isTracked ? ' 📡' : '';
+            return `<span class="untracked-person">${name}${beaconIndicator}</span>`;
           }).join('');
         } else {
           untrackedSection.style.display = 'none';
