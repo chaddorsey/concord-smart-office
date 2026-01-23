@@ -11,11 +11,13 @@
     :root {
       --cc-black: #000000;
       --cc-white: #ffffff;
-      --cc-gold: #ffc320;
-      --cc-cyan: #0693e3;
+      --cc-gold: #F9D772;
+      --cc-teal: #0590AA;
+      --cc-cyan: #0590AA;
       --cc-purple: #9b51e0;
-      --cc-green: #00d084;
-      --cc-orange: #ff6900;
+      --cc-green: #60A53F;
+      --cc-orange: #E97A00;
+      --cc-mango: #F3B100;
       --cc-gray-light: #f5f5f5;
       --cc-gray: #e0e0e0;
       --cc-gray-dark: #666666;
@@ -117,6 +119,37 @@
 
     .panel-content {
       padding: 1rem;
+    }
+
+    /* Panel header colors */
+    .panel-staff .panel-header {
+      background: var(--cc-gold);
+    }
+    .panel-staff .panel-header h2 {
+      color: var(--cc-black);
+    }
+
+    .panel-trains .panel-header {
+      background: var(--cc-cyan);
+    }
+    .panel-trains .panel-header h2 {
+      color: var(--cc-white);
+    }
+
+    .panel-map .panel-header {
+      background: var(--cc-orange);
+    }
+    .panel-map .panel-header h2 {
+      color: var(--cc-white);
+    }
+
+    .panel-events .panel-header,
+    .panel-announcements .panel-header {
+      background: var(--cc-green);
+    }
+    .panel-events .panel-header h2,
+    .panel-announcements .panel-header h2 {
+      color: var(--cc-white);
     }
 
     /* Staff Panel - Full width top */
@@ -312,6 +345,14 @@
       font-size: 1rem;
     }
 
+    .train-next-direction .endpoint {
+      font-weight: 700;
+    }
+
+    .train-next-direction .endash {
+      font-weight: 400;
+    }
+
     .train-next-direction .departs {
       font-family: var(--font-body);
       font-weight: 400;
@@ -352,9 +393,18 @@
     }
 
     .train-item .minutes {
-      font-weight: 700;
-      min-width: 50px;
+      font-weight: 900;
+      min-width: 70px;
       color: var(--cc-black);
+    }
+
+    .train-item .minutes .in-label,
+    .train-next-minutes .in-label {
+      font-weight: 300;
+    }
+
+    .train-item .endpoint {
+      font-weight: 700;
     }
 
     .train-item .arrow {
@@ -867,11 +917,12 @@
 
         nextContainer.innerHTML = `
           <img src="/train-icon.svg" alt="" class="train-icon">
-          <div class="train-next-minutes">${minsFormatted}</div>
+          <div class="train-next-minutes"><span class="in-label">In</span> ${minsFormatted}</div>
           <div class="train-next-info">
             <div class="train-next-direction">
               <span class="arrow ${arrowClass}">${next.directionArrow}</span>
-              <span>${next.destination}</span>
+              <span class="endpoint">${next.destination}</span>
+              <span class="endash">–</span>
               <em class="departs">(Departs Concord ${next.departureTimeFormatted})</em>
             </div>
             <div class="train-next-details">
@@ -888,9 +939,9 @@
           const tArrivalText = getArrivalText(t);
           return `
             <div class="train-item">
-              <span class="minutes">${tMinsFormatted}</span>
+              <span class="minutes"><span class="in-label">In</span> ${tMinsFormatted}</span>
               <span class="arrow ${tArrowClass}">${t.directionArrow}</span>
-              <span class="dest">${t.destination} <em>(Departs ${t.departureTimeFormatted})</em></span>
+              <span class="dest"><span class="endpoint">${t.destination}</span> – <em>(Departs Concord ${t.departureTimeFormatted})</em></span>
               <span class="time">${tArrivalText}</span>
             </div>
           `;
