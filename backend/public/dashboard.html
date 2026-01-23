@@ -39,27 +39,24 @@
 
     /* Header */
     .header {
-      background: var(--cc-black);
-      color: var(--cc-white);
+      background: var(--cc-white);
+      color: var(--cc-black);
       padding: 1rem 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      border-bottom: 1px solid var(--cc-gray);
     }
 
-    .logo {
-      font-family: var(--font-heading);
-      font-size: 1.5rem;
-      font-weight: 700;
-    }
-
-    .logo span {
-      color: var(--cc-gold);
+    .logo img {
+      height: 60px;
+      width: auto;
     }
 
     .time {
-      font-size: 2rem;
-      font-weight: 300;
+      font-family: var(--font-body);
+      font-size: 3rem;
+      font-weight: 100;
     }
 
     /* Alert Banner */
@@ -636,7 +633,9 @@
 </head>
 <body>
   <header class="header">
-    <div class="logo">Concord <span>Consortium</span></div>
+    <div class="logo">
+      <img src="https://concord.org/wp-content/themes/concord2017/images/concord-logo.svg" alt="Concord Consortium">
+    </div>
     <div class="time" id="clock">--:--</div>
   </header>
 
@@ -738,7 +737,7 @@
     function updateClock() {
       const now = new Date();
       document.getElementById('clock').textContent =
-        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     }
     setInterval(updateClock, 1000);
     updateClock();
@@ -1048,15 +1047,16 @@
     // Room definitions with label positions (% of SVG dimensions)
     // label_x, label_y: position for room label at top-center of room
     // center_x, center_y: center point for placing people (below labels)
+    // bounds: { min_x, max_x, min_y, max_y } - margins to keep avatars inside room
     const ROOM_CONFIG = {
-      museum:       { label: 'Museum',              label_x: 8,   label_y: 5,   center_x: 8,   center_y: 20 },
-      cafe:         { label: 'Café',                label_x: 31,  label_y: 5,   center_x: 31,  center_y: 20 },
-      shop:         { label: 'Shop',                label_x: 92,  label_y: 5,   center_x: 92,  center_y: 20 },
-      entry:        { label: 'Entry',               label_x: 5,   label_y: 45,  center_x: 5,   center_y: 55 },
-      bubble:       { label: 'Bubble<br>Room',      label_x: 62,  label_y: 68,  center_x: 62,  center_y: 90 },
-      aviary:       { label: 'Aviary',              label_x: 72,  label_y: 72,  center_x: 72,  center_y: 85 },
-      wonder:       { label: 'Wonder<br>Room',      label_x: 83,  label_y: 50,  center_x: 83,  center_y: 72 },
-      workstations: { label: 'Work<br>Stations',    label_x: 92,  label_y: 50,  center_x: 92,  center_y: 72 }
+      museum:       { label: 'Museum',              label_x: 7,   label_y: 3,   center_x: 8,   center_y: 20,  bounds: { min_x: 3, max_x: 18, min_y: 12, max_y: 35 } },
+      cafe:         { label: 'Café',                label_x: 31,  label_y: 3,   center_x: 31,  center_y: 20,  bounds: { min_x: 22, max_x: 45, min_y: 12, max_y: 35 } },
+      shop:         { label: 'Shop',                label_x: 92,  label_y: 3,   center_x: 92,  center_y: 20,  bounds: { min_x: 85, max_x: 97, min_y: 12, max_y: 35 } },
+      entry:        { label: 'Entry',               label_x: 5,   label_y: 45,  center_x: 5,   center_y: 55,  bounds: { min_x: 3, max_x: 12, min_y: 50, max_y: 65 } },
+      bubble:       { label: 'Bubble<br>Room',      label_x: 60.5, label_y: 68,  center_x: 62,  center_y: 90, bounds: { min_x: 55, max_x: 68, min_y: 80, max_y: 97 } },
+      aviary:       { label: 'Aviary',              label_x: 72,  label_y: 68,  center_x: 72,  center_y: 85,  bounds: { min_x: 68, max_x: 78, min_y: 78, max_y: 97 } },
+      wonder:       { label: 'Wonder<br>Room',      label_x: 83,  label_y: 50,  center_x: 83,  center_y: 72,  bounds: { min_x: 78, max_x: 88, min_y: 60, max_y: 85 } },
+      workstations: { label: 'Work<br>Stations',    label_x: 92,  label_y: 50,  center_x: 92,  center_y: 72,  bounds: { min_x: 88, max_x: 97, min_y: 60, max_y: 85 } }
     };
 
     async function loadMap() {
@@ -1138,33 +1138,98 @@
           roomGroups[roomId].push(person);
         });
 
-        // Calculate positions with distribution for multiple people per room
+        // Seeded random for consistent positioning based on person identifier
+        function seededRandom(seed) {
+          const x = Math.sin(seed) * 10000;
+          return x - Math.floor(x);
+        }
+
+        function hashString(str) {
+          let hash = 0;
+          for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+          }
+          return Math.abs(hash);
+        }
+
+        // Check if two positions overlap (given avatar size ~4% width, ~6% height with name)
+        function overlaps(pos1, pos2, minDistX = 5, minDistY = 7) {
+          return Math.abs(pos1.x - pos2.x) < minDistX && Math.abs(pos1.y - pos2.y) < minDistY;
+        }
+
+        // Check if position overlaps with room label area
+        function overlapsLabel(pos, labelX, labelY, labelWidth = 8, labelHeight = 6) {
+          return pos.x > labelX - labelWidth/2 && pos.x < labelX + labelWidth/2 &&
+                 pos.y > labelY - 2 && pos.y < labelY + labelHeight;
+        }
+
+        // Calculate positions with casual distribution for multiple people per room
         const peopleHtml = [];
+        const allPositions = []; // Track all placed positions for z-ordering
+
         Object.entries(roomGroups).forEach(([roomId, people]) => {
           const roomConfig = ROOM_CONFIG[roomId];
+          const placedInRoom = [];
+
+          // Sort people by name for consistent ordering
+          people.sort((a, b) => (a.user_name || a.user_email || '').localeCompare(b.user_name || b.user_email || ''));
 
           people.forEach((person, index) => {
             const name = person.user_name || person.user_email?.split('@')[0] || '?';
-            const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
             const email = (person.user_email || '').toLowerCase();
             const avatarUrl = STAFF_AVATARS[email] || person.avatar_url;
 
-            // Use ROOM_CONFIG positions if available, with distribution offset
             let posX, posY;
             if (roomConfig) {
-              // Distribute people in a grid pattern around room center
-              const cols = Math.ceil(Math.sqrt(people.length));
-              const row = Math.floor(index / cols);
-              const col = index % cols;
-              const spacing = 4; // % spacing between people
-              const offsetX = (col - (cols - 1) / 2) * spacing;
-              const offsetY = row * spacing;
-              posX = roomConfig.center_x + offsetX;
-              posY = roomConfig.center_y + offsetY;
+              const seed = hashString(email || name);
+              const baseX = roomConfig.center_x;
+              const baseY = roomConfig.center_y;
+              const bounds = roomConfig.bounds;
+
+              // Single person in room: center them directly under label
+              if (people.length === 1) {
+                posX = baseX;
+                posY = baseY;
+              } else {
+                // Multiple people: generate casual offset using seeded random
+                let offsetX = (seededRandom(seed) - 0.5) * 10;
+                let offsetY = (seededRandom(seed + 1) - 0.5) * 8;
+
+                posX = baseX + offsetX;
+                posY = baseY + offsetY;
+
+                // Collision avoidance - try to find non-overlapping position
+                let attempts = 0;
+                const maxAttempts = 20;
+                while (attempts < maxAttempts) {
+                  const hasOverlap = placedInRoom.some(p => overlaps({x: posX, y: posY}, p));
+                  const hitsLabel = overlapsLabel({x: posX, y: posY}, roomConfig.label_x, roomConfig.label_y);
+
+                  if (!hasOverlap && !hitsLabel) break;
+
+                  // Spiral outward to find free spot
+                  const angle = attempts * 2.4; // Golden angle for even distribution
+                  const radius = 3 + attempts * 0.8;
+                  offsetX = Math.cos(angle) * radius;
+                  offsetY = Math.sin(angle) * radius * 0.7; // Slightly compressed vertically
+                  posX = baseX + offsetX;
+                  posY = baseY + offsetY;
+                  attempts++;
+                }
+              }
+
+              // Clamp position to room bounds
+              if (bounds) {
+                posX = Math.max(bounds.min_x, Math.min(bounds.max_x, posX));
+                posY = Math.max(bounds.min_y, Math.min(bounds.max_y, posY));
+              }
+
+              placedInRoom.push({x: posX, y: posY});
             } else {
-              // Fallback to server-provided position
-              posX = person.position.x;
-              posY = person.position.y;
+              posX = person.position?.x || 50;
+              posY = person.position?.y || 50;
             }
 
             // Determine tracking status and icon class
@@ -1181,19 +1246,28 @@
             // Get first name only for label
             const firstName = name.split(' ')[0];
 
-            peopleHtml.push(`
-              <div class="map-person" style="left: ${posX}%; top: ${posY}%; opacity: ${opacity};">
+            // Z-index based on vertical position (higher Y = further back, lower z-index)
+            // This ensures name labels of people in front aren't covered
+            const zIndex = Math.round(100 - posY);
+
+            allPositions.push({
+              html: `
+              <div class="map-person" style="left: ${posX}%; top: ${posY}%; opacity: ${opacity}; z-index: ${zIndex};">
                 <div class="map-person-icon ${iconClass}">
                   <img src="/person-map-avatar.svg" alt="${name}" class="person-avatar-svg">
                   ${isTracked ? `<div class="signal-indicator ${signalClass}"></div>` : ''}
                 </div>
                 <div class="map-person-name">${firstName}</div>
               </div>
-            `);
+            `,
+              y: posY
+            });
           });
         });
 
-        overlay.innerHTML = peopleHtml.join('');
+        // Sort by Y position (top to bottom) so people at top render first (behind)
+        allPositions.sort((a, b) => a.y - b.y);
+        overlay.innerHTML = allPositions.map(p => p.html).join('');
 
         // Render unlocated people in the list below
         if (data.unlocated.length > 0) {
