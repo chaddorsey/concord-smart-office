@@ -42,8 +42,15 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
-        // Don't let service worker intercept API requests
-        navigateFallbackDenylist: [/^\/api\//],
+        // Don't let service worker intercept API requests or static HTML pages
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /\.html$/,           // Any .html file (dashboard.html, kiosk.html, etc.)
+          /^\/kiosk\//,        // Kiosk display routes
+          /^\/frame\//,        // Frame display routes
+          /^\/health$/,        // Health check endpoint
+          /^\/office-map\.svg$/, // Map SVG
+        ],
         runtimeCaching: [
           {
             // Let API requests go directly to network, never cache

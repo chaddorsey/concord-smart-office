@@ -412,14 +412,15 @@ app.post('/api/auth/logout', async (req, res) => {
   }
 });
 
-// POST /api/auth/demo - Demo login (only when OAuth not configured)
+// POST /api/auth/demo - Demo login (only when OAuth not configured, or ALLOW_DEMO_LOGIN=true)
 app.post('/api/auth/demo', async (req, res) => {
   console.log('[Demo] Login request from origin:', req.get('origin'));
 
-  if (GOOGLE_OAUTH_CONFIGURED) {
+  const allowDemoLogin = process.env.ALLOW_DEMO_LOGIN === 'true';
+  if (GOOGLE_OAUTH_CONFIGURED && !allowDemoLogin) {
     return res.status(403).json({
       error: 'Demo login disabled',
-      message: 'Demo login is not available when OAuth is configured'
+      message: 'Demo login is not available when OAuth is configured (set ALLOW_DEMO_LOGIN=true to override)'
     });
   }
 
@@ -515,7 +516,7 @@ app.get('/api/staff', (req, res) => {
     const staff = db.getDatabase().prepare(`
       SELECT u.id, u.email, u.name, u.avatar_url
       FROM users u
-      WHERE u.role = 'staff'
+      WHERE u.role IN ('staff', 'user')
       ORDER BY u.name
     `).all();
 

@@ -83,7 +83,7 @@ interface NotificationContextValue extends NotificationState {
 const NotificationContext = createContext<NotificationContextValue | null>(null)
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated } = useAuth()
 
   const [state, setState] = useState<NotificationState>({
     notifications: [],
@@ -330,7 +330,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       // Subscribe to push
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey)
+        applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource
       })
 
       // Send subscription to backend
