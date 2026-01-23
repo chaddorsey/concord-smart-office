@@ -1,0 +1,62 @@
+esphome:
+  name: ble-proxy-office
+  friendly_name: BLE Proxy Office
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Enable logging with BLE debug
+logger:
+  level: DEBUG
+  logs:
+    esp32_ble_tracker: DEBUG
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "BLE-Proxy-Office"
+    password: "concordble"
+
+captive_portal:
+
+# Bluetooth proxy for Home Assistant
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true
+
+# Track specific BLE tags for presence detection
+binary_sensor:
+  - platform: ble_presence
+    mac_address: DD:88:00:00:12:EE
+    name: "BLE Tag 1"
+    device_class: presence
+    # Consider away after 60 seconds without detection
+    timeout: 60s
+
+sensor:
+  - platform: ble_rssi
+    mac_address: DD:88:00:00:12:EE
+    name: "BLE Tag 1 RSSI"
+    unit_of_measurement: "dBm"
+    accuracy_decimals: 0
+    filters:
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 1
