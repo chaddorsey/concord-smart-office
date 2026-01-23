@@ -2854,6 +2854,190 @@ app.post('/api/ble/heartbeat', (req, res) => {
 });
 
 // ============================================================================
+// Notification Routes
+// ============================================================================
+
+const notificationService = require('./services/notificationService');
+
+// GET /api/notifications/quick-messages - Get quick message templates
+app.get('/api/notifications/quick-messages', (req, res) => {
+  try {
+    const messages = notificationService.getQuickMessages();
+    res.json({ messages });
+  } catch (error) {
+    console.error('Failed to get quick messages:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/notifications - Get user's notifications
+app.get('/api/notifications', authService.requireAuth, (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const notifications = notificationService.getUserNotifications(req.user.id, limit);
+    res.json({ notifications });
+  } catch (error) {
+    console.error('Failed to get notifications:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/notifications/unread - Get user's unread notifications
+app.get('/api/notifications/unread', authService.requireAuth, (req, res) => {
+  try {
+    const notifications = notificationService.getUnreadNotifications(req.user.id);
+    res.json({ notifications, count: notifications.length });
+  } catch (error) {
+    console.error('Failed to get unread notifications:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/notifications/quick-message - Send a quick message
+app.post('/api/notifications/quick-message', authService.requireAuth, (req, res) => {
+  try {
+    const { quickMessageId, customMessage, sendToAll, excludeUserIds } = req.body;
+
+    if (!quickMessageId && !customMessage) {
+      return res.status(400).json({ error: 'Either quickMessageId or customMessage is required' });
+    }
+
+    const result = notificationService.sendQuickMessage({
+      quickMessageId,
+      customMessage,
+      senderUserId: req.user.id,
+      sendToAll: sendToAll !== false,
+      excludeUserIds: excludeUserIds || []
+    });
+
+    // Broadcast via SSE
+    broadcastEvent('quick_message', {
+      sender_id: req.user.id,
+      sender_name: req.user.name,
+      message_id: quickMessageId,
+      custom_message: customMessage
+    });
+
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Failed to send quick message:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/notifications/:id/read - Mark notification as read
+app.post('/api/notifications/:id/read', authService.requireAuth, (req, res) => {
+  try {
+    const notificationId = parseInt(req.params.id);
+    const success = notificationService.markAsRead(notificationId);
+    res.json({ success });
+  } catch (error) {
+    console.error('Failed to mark notification as read:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/notifications/read-all - Mark all notifications as read
+app.post('/api/notifications/read-all', authService.requireAuth, (req, res) => {
+  try {
+    const count = notificationService.markAllAsRead(req.user.id);
+    res.json({ success: true, count });
+  } catch (error) {
+    console.error('Failed to mark all notifications as read:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/notifications/recipients - Get checked-in users for recipient selection
+app.get('/api/notifications/recipients', authService.requireAuth, (req, res) => {
+  try {
+    const recipients = notificationService.getCheckedInRecipients(req.user.id);
+    res.json({ recipients });
+  } catch (error) {
+    console.error('Failed to get recipients:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Push Notification Routes
+// ============================================================================
+
+// GET /api/push/vapid-key - Get VAPID public key
+app.get('/api/push/vapid-key', (req, res) => {
+  const key = notificationService.getVapidPublicKey();
+  res.json({ publicKey: key });
+});
+
+// POST /api/push/subscribe - Save push subscription
+app.post('/api/push/subscribe', authService.requireAuth, (req, res) => {
+  try {
+    const subscription = req.body;
+    if (!subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
+      return res.status(400).json({ error: 'Invalid subscription object' });
+    }
+
+    notificationService.savePushSubscription(req.user.id, subscription);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to save push subscription:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/push/unsubscribe - Remove push subscription
+app.delete('/api/push/unsubscribe', authService.requireAuth, (req, res) => {
+  try {
+    const { endpoint } = req.body;
+    if (!endpoint) {
+      return res.status(400).json({ error: 'Endpoint is required' });
+    }
+
+    const success = notificationService.removePushSubscription(endpoint);
+    res.json({ success });
+  } catch (error) {
+    console.error('Failed to remove push subscription:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// Entrance Detection Profile Routes
+// ============================================================================
+
+const { getAllProfiles } = require('./config/entranceDetection');
+
+// GET /api/entrance-profiles - Get available entrance detection profiles
+app.get('/api/entrance-profiles', (req, res) => {
+  try {
+    const profiles = getAllProfiles();
+    res.json({ profiles });
+  } catch (error) {
+    console.error('Failed to get entrance profiles:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/beacons/:id/entrance-profile - Set beacon's entrance profile
+app.put('/api/beacons/:id/entrance-profile', authService.requireAuth, (req, res) => {
+  try {
+    const beaconId = parseInt(req.params.id);
+    const { profile } = req.body;
+
+    if (!profile) {
+      return res.status(400).json({ error: 'Profile name is required' });
+    }
+
+    db.run('UPDATE beacons SET entrance_profile = ? WHERE id = ?', [profile, beaconId]);
+    const beacon = db.getBeaconById(beaconId);
+    res.json({ success: true, beacon });
+  } catch (error) {
+    console.error('Failed to set entrance profile:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // Health Check and Config Routes
 // ============================================================================
 
