@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import BottomNav from '../components/BottomNav'
+import QuickMessageComposer from '../components/QuickMessageComposer'
 
 interface PresenceInfo {
   user_id: number
@@ -30,6 +31,7 @@ export default function WhosIn() {
   const [presence, setPresence] = useState<PresenceInfo[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showMessageComposer, setShowMessageComposer] = useState(false)
 
   const fetchPresence = useCallback(async () => {
     try {
@@ -108,12 +110,23 @@ export default function WhosIn() {
               </p>
             </div>
           </div>
-          <Link
-            to="/scan"
-            className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-green-700 transition"
-          >
-            Check In
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowMessageComposer(true)}
+              className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition"
+              title="Send message to office"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+              </svg>
+            </button>
+            <Link
+              to="/scan"
+              className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-green-700 transition"
+            >
+              Check In
+            </Link>
+          </div>
         </div>
 
         {/* Loading State */}
@@ -185,6 +198,15 @@ export default function WhosIn() {
       </main>
 
       <BottomNav />
+
+      {/* Message Composer Modal */}
+      {showMessageComposer && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
+          <div className="bg-white rounded-t-2xl w-full max-w-lg max-h-[80vh] overflow-auto animate-slide-up">
+            <QuickMessageComposer onClose={() => setShowMessageComposer(false)} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
