@@ -97,7 +97,13 @@ function configurePassport(app) {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         callbackURL: process.env.AUTH_CALLBACK_URL || '/api/auth/google/callback',
-        scope: ['email', 'profile']
+        // OAuth scopes: profile info + calendar read access
+        scope: [
+          'email',
+          'profile',
+          'https://www.googleapis.com/auth/calendar.readonly',
+          'https://www.googleapis.com/auth/calendar.events.readonly'
+        ]
       },
       async (accessToken, refreshToken, profile, done) => {
         try {

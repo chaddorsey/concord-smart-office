@@ -102,6 +102,10 @@ app.use(cors({
     if (origin.match(/^https?:\/\/concordhq\.local(:\d+)?$/)) {
       return callback(null, true);
     }
+    // Allow nip.io domains (for OAuth-compatible local network access)
+    if (origin.match(/^https?:\/\/[\w-]+\.nip\.io(:\d+)?$/)) {
+      return callback(null, true);
+    }
     // Allow configured PWA URL
     if (origin === PWA_URL) {
       return callback(null, true);
