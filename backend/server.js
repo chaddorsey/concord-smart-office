@@ -541,6 +541,9 @@ app.post('/api/staff/checkin', async (req, res) => {
     // Check in using presence service
     const presence = await presenceService.checkIn(user.id, source, null);
 
+    // Create a session for this user so the PWA knows who is logged in
+    await authService.createSession(res, user.id);
+
     // Broadcast check-in event
     broadcastEvent('checkin', {
       user_id: user.id,
