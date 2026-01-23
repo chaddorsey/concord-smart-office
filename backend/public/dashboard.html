@@ -274,38 +274,121 @@
     .train-next {
       display: flex;
       align-items: center;
-      gap: 1rem;
-      margin-bottom: 1rem;
-      padding-bottom: 1rem;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.75rem;
       border-bottom: 1px solid var(--cc-gray);
     }
 
-    .train-next-time {
-      font-size: 2rem;
-      font-weight: 700;
+    .train-icon {
+      width: 28px;
+      height: auto;
+      flex-shrink: 0;
+    }
+
+    .train-next-minutes {
+      font-size: 1.8rem;
+      font-weight: 900;
       font-family: var(--font-heading);
+      color: var(--cc-cyan);
+      line-height: 1;
+      min-width: 80px;
+      white-space: nowrap;
+    }
+
+    .train-next-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .train-next-direction {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--font-heading);
+      font-weight: 700;
+      font-size: 1rem;
+    }
+
+    .train-next-direction .departs {
+      font-family: var(--font-body);
+      font-weight: 400;
+      font-style: italic;
+      font-size: 0.85rem;
+      color: var(--cc-gray-dark);
+    }
+
+    .train-next-direction .arrow {
+      font-size: 1.25rem;
+    }
+
+    .train-next-direction .arrow.inbound {
       color: var(--cc-cyan);
     }
 
-    .train-next-dest {
-      font-size: 0.9rem;
+    .train-next-direction .arrow.outbound {
+      color: var(--cc-orange);
+    }
+
+    .train-next-details {
+      font-size: 0.8rem;
       color: var(--cc-gray-dark);
     }
 
     .train-list {
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.4rem;
     }
 
     .train-item {
       display: flex;
-      justify-content: space-between;
-      font-size: 0.85rem;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      padding: 0.3rem 0;
     }
 
-    .train-item .time { font-weight: 500; }
-    .train-item .dest { color: var(--cc-gray-dark); }
+    .train-item .minutes {
+      font-weight: 700;
+      min-width: 50px;
+      color: var(--cc-black);
+    }
+
+    .train-item .arrow {
+      font-size: 1rem;
+    }
+
+    .train-item .arrow.inbound { color: var(--cc-cyan); }
+    .train-item .arrow.outbound { color: var(--cc-orange); }
+
+    .train-item .dest {
+      flex: 1;
+      color: var(--cc-black);
+    }
+
+    .train-item .dest em {
+      font-style: italic;
+      font-weight: 400;
+      color: var(--cc-gray-dark);
+    }
+
+    .train-item .time {
+      font-size: 0.75rem;
+      color: var(--cc-gray-dark);
+    }
+
+    .train-item .time .station-name {
+      font-weight: 900;
+      font-style: normal;
+    }
+
+    .train-item .time em {
+      font-style: italic;
+      color: var(--cc-gray-dark);
+    }
 
     /* Announcements Panel */
     .announcement-list {
@@ -549,12 +632,16 @@
     <!-- Next Trains -->
     <section class="panel panel-trains">
       <div class="panel-header">
-        <h2>Next Trains</h2>
+        <h2>Trains from Concord</h2>
       </div>
       <div class="panel-content">
         <div class="train-next" id="train-next">
-          <div class="train-next-time">--</div>
-          <div class="train-next-dest">Loading...</div>
+          <img src="/train-icon.svg" alt="" class="train-icon">
+          <div class="train-next-minutes">--</div>
+          <div class="train-next-info">
+            <div class="train-next-direction">Loading...</div>
+            <div class="train-next-details"></div>
+          </div>
         </div>
         <div class="train-list" id="train-list"></div>
       </div>
@@ -729,8 +816,28 @@
     setInterval(updateQRTimer, 1000);
 
     // =========================================================================
-    // Trains
+    // Trains (MBTA Fitchburg Line from Concord)
     // =========================================================================
+    function formatTrainMinutes(minutes) {
+      if (minutes < 1) return 'Now';
+      const hours = Math.floor(minutes / 60);
+      const mins = Math.round(minutes % 60);
+      if (hours === 0) return `${mins}min`;
+      if (mins === 0) return `${hours}h`;
+      return `${hours}h, ${mins}min`;
+    }
+
+    function getArrowClass(direction) {
+      return direction === 'Inbound' ? 'inbound' : 'outbound';
+    }
+
+    function getArrivalText(train) {
+      if (train.arrivalTimeFormatted && train.arrivalStopName) {
+        return `Arrives <span class="station-name">${train.arrivalStopName}</span> at ${train.arrivalTimeFormatted}`;
+      }
+      return '';
+    }
+
     async function updateTrains() {
       try {
         const res = await fetch(`${API_BASE}/api/trains`, {
@@ -741,30 +848,63 @@
         const nextContainer = document.getElementById('train-next');
         const listContainer = document.getElementById('train-list');
 
-        if (!data.next) {
+        if (!data.predictions || data.predictions.length === 0) {
           nextContainer.innerHTML = `
-            <div class="train-next-time">--</div>
-            <div class="train-next-dest">No trains scheduled</div>
+            <img src="/train-icon.svg" alt="" class="train-icon">
+            <div class="train-next-minutes">--</div>
+            <div class="train-next-info">
+              <div class="train-next-direction">No trains scheduled</div>
+              <div class="train-next-details">Check MBTA for service updates</div>
+            </div>
           `;
           listContainer.innerHTML = '';
           return;
         }
 
+        const next = data.predictions[0];
+        const minsFormatted = formatTrainMinutes(next.minutesUntil);
+        const arrowClass = getArrowClass(next.direction);
+
         nextContainer.innerHTML = `
-          <div class="train-next-time">${data.nextMinutes}</div>
-          <div class="train-next-dest">${data.next.departureTimeFormatted} → ${data.next.destination}</div>
+          <img src="/train-icon.svg" alt="" class="train-icon">
+          <div class="train-next-minutes">${minsFormatted}</div>
+          <div class="train-next-info">
+            <div class="train-next-direction">
+              <span class="arrow ${arrowClass}">${next.directionArrow}</span>
+              <span>${next.destination}</span>
+              <em class="departs">(Departs Concord ${next.departureTimeFormatted})</em>
+            </div>
+            <div class="train-next-details">
+              ${next.status !== 'On time' && next.status !== 'Scheduled' ? next.status : ''}
+            </div>
+          </div>
         `;
 
-        // Show remaining trains
+        // Show remaining trains (up to 4 more)
         const remaining = data.predictions.slice(1, 5);
-        listContainer.innerHTML = remaining.map(t => `
-          <div class="train-item">
-            <span class="time">${t.departureTimeFormatted}</span>
-            <span class="dest">→ ${t.destination}</span>
-          </div>
-        `).join('');
+        listContainer.innerHTML = remaining.map(t => {
+          const tMinsFormatted = formatTrainMinutes(t.minutesUntil);
+          const tArrowClass = getArrowClass(t.direction);
+          const tArrivalText = getArrivalText(t);
+          return `
+            <div class="train-item">
+              <span class="minutes">${tMinsFormatted}</span>
+              <span class="arrow ${tArrowClass}">${t.directionArrow}</span>
+              <span class="dest">${t.destination} <em>(Departs ${t.departureTimeFormatted})</em></span>
+              <span class="time">${tArrivalText}</span>
+            </div>
+          `;
+        }).join('');
       } catch (error) {
         console.error('Trains error:', error);
+        document.getElementById('train-next').innerHTML = `
+          <img src="/train-icon.svg" alt="" class="train-icon">
+          <div class="train-next-minutes">--</div>
+          <div class="train-next-info">
+            <div class="train-next-direction">Unable to load</div>
+            <div class="train-next-details">Check back shortly</div>
+          </div>
+        `;
       }
     }
 
