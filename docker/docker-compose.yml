@@ -50,6 +50,9 @@ services:
       - TOKEN_EXPIRY_SECONDS=${TOKEN_EXPIRY_SECONDS:-60}
       # External APIs
       - PIXABAY_API_KEY=${PIXABAY_API_KEY:-}
+      # Cron jobs
+      - CRON_SECRET=${CRON_SECRET:-}
+      - TZ=${TZ:-America/New_York}
     depends_on:
       homeassistant:
         condition: service_started

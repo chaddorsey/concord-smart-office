@@ -23,10 +23,14 @@ const webhookQueue = [];
 // Retry interval reference (for cleanup)
 let retryIntervalId = null;
 
+// Midnight checkout scheduler reference
+let midnightCheckoutIntervalId = null;
+let lastMidnightCheckoutDate = null;
+
 /**
  * Valid check-in sources
  */
-const VALID_SOURCES = ['qr', 'nfc', 'ble', 'manual'];
+const VALID_SOURCES = ['qr', 'nfc', 'ble', 'manual', 'auto'];
 
 /**
  * Sleep utility for exponential backoff
@@ -388,9 +392,95 @@ function clearWebhookQueue() {
   return count;
 }
 
+/**
+ * Check out all currently present users
+ * Used for midnight auto-checkout
+ * @returns {Promise<number>} Number of users checked out
+ */
+async function checkOutAll() {
+  const present = db.getAllPresent();
+  let checkedOut = 0;
+
+  for (const p of present) {
+    try {
+      await checkOut(p.user_id, 'auto');
+      checkedOut++;
+      console.log(`[Presence] Auto checkout: ${p.name || p.user_id}`);
+    } catch (error) {
+      console.error(`[Presence] Failed to auto checkout user ${p.user_id}:`, error.message);
+    }
+  }
+
+  return checkedOut;
+}
+
+/**
+ * Check if it's midnight in Eastern time
+ * @returns {boolean}
+ */
+function isMidnightEastern() {
+  const now = new Date();
+  // Convert to Eastern time
+  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  return eastern.getHours() === 0 && eastern.getMinutes() === 0;
+}
+
+/**
+ * Get today's date string in Eastern time (for tracking last checkout)
+ * @returns {string}
+ */
+function getTodayEastern() {
+  const now = new Date();
+  const eastern = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  return eastern.toISOString().split('T')[0];
+}
+
+/**
+ * Start the midnight checkout scheduler
+ * Checks every minute if it's midnight ET and performs auto-checkout
+ */
+function startMidnightCheckoutScheduler() {
+  if (midnightCheckoutIntervalId) {
+    console.log('[Presence] Midnight checkout scheduler already running');
+    return;
+  }
+
+  console.log('[Presence] Starting midnight checkout scheduler (Eastern time)');
+
+  // Check every minute
+  midnightCheckoutIntervalId = setInterval(async () => {
+    if (isMidnightEastern()) {
+      const today = getTodayEastern();
+
+      // Prevent multiple checkouts in the same midnight window
+      if (lastMidnightCheckoutDate === today) {
+        return;
+      }
+
+      console.log('[Presence] Midnight Eastern - performing auto checkout');
+      lastMidnightCheckoutDate = today;
+
+      const count = await checkOutAll();
+      console.log(`[Presence] Midnight auto-checkout complete: ${count} users checked out`);
+    }
+  }, 60000); // Check every minute
+}
+
+/**
+ * Stop the midnight checkout scheduler
+ */
+function stopMidnightCheckoutScheduler() {
+  if (midnightCheckoutIntervalId) {
+    clearInterval(midnightCheckoutIntervalId);
+    midnightCheckoutIntervalId = null;
+    console.log('[Presence] Midnight checkout scheduler stopped');
+  }
+}
+
 module.exports = {
   checkIn,
   checkOut,
+  checkOutAll,
   getPresence,
   getAllPresent,
   getPresenceHistory,
@@ -398,5 +488,7 @@ module.exports = {
   getWebhookQueueStatus,
   startRetryInterval,
   stopRetryInterval,
-  clearWebhookQueue
+  clearWebhookQueue,
+  startMidnightCheckoutScheduler,
+  stopMidnightCheckoutScheduler
 };

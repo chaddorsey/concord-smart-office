@@ -1,0 +1,15 @@
+# Concord Smart Office Cron Jobs
+#
+# Environment variables are loaded from /app/cron/env.sh
+# All times are in Eastern timezone (set in env.sh)
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Midnight auto-checkout (Eastern time)
+# Runs at 00:00 ET every day
+0 0 * * * root /app/cron/run-job.sh midnight-checkout >> /var/log/cron.log 2>&1
+
+# Add future cron jobs below:
+# Example: Daily cleanup at 3am ET
+# 0 3 * * * root /app/cron/run-job.sh cleanup >> /var/log/cron.log 2>&1

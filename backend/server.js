@@ -94,6 +94,10 @@ app.use(cors({
     if (origin.match(/^https?:\/\/(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/)) {
       return callback(null, true);
     }
+    // Allow Tailscale IPs (100.x.x.x)
+    if (origin.match(/^https?:\/\/100\.\d+\.\d+\.\d+(:\d+)?$/)) {
+      return callback(null, true);
+    }
     // Allow concordhq.local
     if (origin.match(/^https?:\/\/concordhq\.local(:\d+)?$/)) {
       return callback(null, true);
@@ -737,6 +741,42 @@ app.post('/api/presence/checkout', authService.requireAuth, async (req, res) => 
   } catch (error) {
     console.error('Check-out error:', error);
     res.status(500).json({ error: 'Check-out failed', message: error.message });
+  }
+});
+
+// POST /api/presence/checkout-all - Check out all users (internal/cron use)
+// Requires CRON_SECRET token for authentication
+app.post('/api/presence/checkout-all', async (req, res) => {
+  try {
+    // Verify cron secret token
+    const authHeader = req.headers.authorization;
+    const cronSecret = process.env.CRON_SECRET;
+
+    if (!cronSecret) {
+      console.error('[Cron] CRON_SECRET not configured');
+      return res.status(500).json({ error: 'Cron not configured' });
+    }
+
+    if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    console.log('[Cron] Executing checkout-all');
+    const count = await presenceService.checkOutAll();
+
+    // Broadcast event for real-time dashboard updates
+    if (count > 0) {
+      broadcastEvent('checkout-all', { count });
+    }
+
+    res.json({
+      success: true,
+      message: `Checked out ${count} users`,
+      count
+    });
+  } catch (error) {
+    console.error('[Cron] Checkout-all error:', error);
+    res.status(500).json({ error: 'Checkout-all failed', message: error.message });
   }
 });
 
@@ -3081,6 +3121,8 @@ app.listen(PORT, '0.0.0.0', () => {
   // Start presence webhook retry interval
   presenceService.startRetryInterval();
   console.log('[Presence] Started webhook retry interval');
+
+  // Note: Midnight auto-checkout is handled by cron (see /cron/midnight-checkout.sh)
 });
 
 // Graceful shutdown
