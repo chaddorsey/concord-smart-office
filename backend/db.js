@@ -410,6 +410,244 @@ function initDatabase() {
       insertLedFav.run('Glitter', '#FF6600', 150);
       insertLedFav.run('Confetti', null, 128);
     }
+
+    // Add creator_user_id and submission_source to oasis_submissions if not exists
+    try {
+      db.exec(`ALTER TABLE oasis_submissions ADD COLUMN creator_user_id INTEGER REFERENCES users(id)`);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+    try {
+      db.exec(`ALTER TABLE oasis_submissions ADD COLUMN submission_source TEXT DEFAULT 'queue'`);
+    } catch (e) {
+      // Column already exists, ignore
+    }
+
+    // ========================================================================
+    // Rooms Table
+    // ========================================================================
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS rooms (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        svg_path_id TEXT,
+        floor INTEGER DEFAULT 1,
+        capacity INTEGER,
+        display_order INTEGER,
+        center_x REAL,
+        center_y REAL,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+    // ========================================================================
+    // BLE Beacon Tables
+    // ========================================================================
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS beacons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mac_address TEXT UNIQUE,
+        beacon_uuid TEXT,
+        major INTEGER,
+        minor INTEGER,
+        friendly_name TEXT,
+        claimed_by_user_id INTEGER,
+        last_room_id TEXT,
+        last_proxy_id TEXT,
+        last_rssi INTEGER,
+        last_seen_at TEXT,
+        entrance_profile TEXT DEFAULT 'default',
+        entrance_state TEXT DEFAULT 'unknown',
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (claimed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (last_room_id) REFERENCES rooms(id)
+      )
+    `);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS beacon_sightings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        beacon_id INTEGER NOT NULL,
+        proxy_id TEXT NOT NULL,
+        room_id TEXT,
+        rssi INTEGER,
+        seen_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (beacon_id) REFERENCES beacons(id) ON DELETE CASCADE
+      )
+    `);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ble_proxies (
+        id TEXT PRIMARY KEY,
+        friendly_name TEXT,
+        room_id TEXT,
+        zone_type TEXT DEFAULT 'room',
+        rssi_threshold INTEGER DEFAULT -70,
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (room_id) REFERENCES rooms(id)
+      )
+    `);
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_beacons_mac ON beacons(mac_address);
+      CREATE INDEX IF NOT EXISTS idx_beacons_claimed ON beacons(claimed_by_user_id);
+      CREATE INDEX IF NOT EXISTS idx_beacon_sightings_beacon ON beacon_sightings(beacon_id);
+      CREATE INDEX IF NOT EXISTS idx_beacon_sightings_seen ON beacon_sightings(seen_at);
+    `);
+
+    // ========================================================================
+    // User Preferences Tables
+    // ========================================================================
+
+    // Oasis Design Favorites (User-specific)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_oasis_favorites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        pattern_id TEXT NOT NULL,
+        pattern_name TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, pattern_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Music Track Preferences (Thumbs up/down)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_track_votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        track_uri TEXT NOT NULL,
+        track_name TEXT,
+        artist_name TEXT,
+        vote INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, track_uri),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // User-Added Spotify Tracks
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_added_tracks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        track_uri TEXT NOT NULL,
+        track_name TEXT,
+        artist_name TEXT,
+        taste_id TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (taste_id) REFERENCES tastes(id)
+      )
+    `);
+
+    // Music Vibe Preferences & Overrides
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_music_preferences (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL UNIQUE,
+        preferred_taste_id TEXT,
+        volume_override REAL,
+        playback_enabled INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (preferred_taste_id) REFERENCES tastes(id)
+      )
+    `);
+
+    // Color Preferences
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_color_preferences (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL UNIQUE,
+        led_color TEXT,
+        ambient_color TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Photo/Video Preferences (Thumbs up/down/deleted)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_media_votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        media_url TEXT NOT NULL,
+        media_type TEXT,
+        vote INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(user_id, media_url),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_user_oasis_favorites_user ON user_oasis_favorites(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_track_votes_user ON user_track_votes(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_added_tracks_user ON user_added_tracks(user_id);
+      CREATE INDEX IF NOT EXISTS idx_user_media_votes_user ON user_media_votes(user_id);
+    `);
+
+    // ========================================================================
+    // Notifications & Push Tables
+    // ========================================================================
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        group_type TEXT,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        type TEXT DEFAULT 'info',
+        action_url TEXT,
+        sender_user_id INTEGER,
+        created_at TEXT DEFAULT (datetime('now')),
+        read_at TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE SET NULL
+      )
+    `);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+      CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
+      CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+    `);
+
+    // ========================================================================
+    // Seed Room Data
+    // ========================================================================
+    const roomCount = db.prepare('SELECT COUNT(*) as count FROM rooms').get();
+    if (roomCount.count === 0) {
+      const insertRoom = db.prepare(`
+        INSERT INTO rooms (id, name, display_order, center_x, center_y) VALUES (?, ?, ?, ?, ?)
+      `);
+      // Room positions based on SVG viewBox 0 0 1776 590.44 and floor plan analysis
+      insertRoom.run('museum', 'The Museum', 1, 120, 120);
+      insertRoom.run('cafe', 'The Café', 2, 450, 150);
+      insertRoom.run('shop', 'The Shop', 3, 1700, 100);
+      insertRoom.run('bubble', 'The Bubble Room', 4, 950, 480);
+      insertRoom.run('aviary', 'The Aviary', 5, 1100, 480);
+      insertRoom.run('wonder', 'The Conference Room of Discovery and Wonder', 6, 1350, 420);
+      insertRoom.run('workstations', 'Work Stations', 7, 1600, 420);
+    }
   });
 
   try {
@@ -2032,6 +2270,500 @@ function updateOasisSchedulerState(updates) {
 }
 
 // ============================================================================
+// Room Operations
+// ============================================================================
+
+/**
+ * Get all rooms
+ * @returns {Array} Array of room objects
+ */
+function getAllRooms() {
+  return db.prepare('SELECT * FROM rooms ORDER BY display_order').all();
+}
+
+/**
+ * Get a room by ID
+ * @param {string} roomId - Room ID
+ * @returns {Object|null} Room object or null
+ */
+function getRoomById(roomId) {
+  return db.prepare('SELECT * FROM rooms WHERE id = ?').get(roomId) || null;
+}
+
+/**
+ * Update room position
+ * @param {string} roomId - Room ID
+ * @param {number} centerX - X coordinate
+ * @param {number} centerY - Y coordinate
+ * @returns {Object|null} Updated room or null
+ */
+function updateRoomPosition(roomId, centerX, centerY) {
+  db.prepare('UPDATE rooms SET center_x = ?, center_y = ? WHERE id = ?').run(centerX, centerY, roomId);
+  return getRoomById(roomId);
+}
+
+// ============================================================================
+// BLE Beacon Operations
+// ============================================================================
+
+/**
+ * Register a new beacon
+ * @param {Object} beaconData - Beacon registration data
+ * @returns {Object} Created beacon
+ */
+function registerBeacon({ macAddress, beaconUuid, major, minor, friendlyName }) {
+  const stmt = db.prepare(`
+    INSERT INTO beacons (mac_address, beacon_uuid, major, minor, friendly_name)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const result = stmt.run(macAddress, beaconUuid || null, major || null, minor || null, friendlyName || null);
+  return getBeaconById(result.lastInsertRowid);
+}
+
+/**
+ * Get beacon by ID
+ * @param {number} beaconId - Beacon ID
+ * @returns {Object|null} Beacon object or null
+ */
+function getBeaconById(beaconId) {
+  return db.prepare('SELECT * FROM beacons WHERE id = ?').get(beaconId) || null;
+}
+
+/**
+ * Get beacon by MAC address
+ * @param {string} macAddress - MAC address
+ * @returns {Object|null} Beacon object or null
+ */
+function getBeaconByMac(macAddress) {
+  return db.prepare('SELECT * FROM beacons WHERE mac_address = ?').get(macAddress) || null;
+}
+
+/**
+ * Get beacon by user ID
+ * @param {number} userId - User ID
+ * @returns {Object|null} Beacon object or null
+ */
+function getBeaconByUser(userId) {
+  return db.prepare('SELECT * FROM beacons WHERE claimed_by_user_id = ?').get(userId) || null;
+}
+
+/**
+ * Get all unclaimed beacons
+ * @returns {Array} Array of unclaimed beacons
+ */
+function getUnclaimedBeacons() {
+  return db.prepare('SELECT * FROM beacons WHERE claimed_by_user_id IS NULL').all();
+}
+
+/**
+ * Get all beacons
+ * @returns {Array} Array of all beacons
+ */
+function getAllBeacons() {
+  return db.prepare(`
+    SELECT b.*, u.name as claimed_by_name, u.email as claimed_by_email
+    FROM beacons b
+    LEFT JOIN users u ON b.claimed_by_user_id = u.id
+    ORDER BY b.created_at DESC
+  `).all();
+}
+
+/**
+ * Claim a beacon for a user
+ * @param {number} beaconId - Beacon ID
+ * @param {number} userId - User ID
+ * @returns {Object|null} Updated beacon or null
+ */
+function claimBeacon(beaconId, userId) {
+  const stmt = db.prepare(`
+    UPDATE beacons
+    SET claimed_by_user_id = ?
+    WHERE id = ? AND claimed_by_user_id IS NULL
+  `);
+  const result = stmt.run(userId, beaconId);
+  if (result.changes === 0) return null;
+  return getBeaconById(beaconId);
+}
+
+/**
+ * Unclaim a beacon
+ * @param {number} beaconId - Beacon ID
+ * @returns {boolean} True if unclaimed
+ */
+function unclaimBeacon(beaconId) {
+  const result = db.prepare('UPDATE beacons SET claimed_by_user_id = NULL WHERE id = ?').run(beaconId);
+  return result.changes > 0;
+}
+
+/**
+ * Delete a beacon
+ * @param {number} beaconId - Beacon ID
+ * @returns {boolean} True if deleted
+ */
+function deleteBeacon(beaconId) {
+  const result = db.prepare('DELETE FROM beacons WHERE id = ?').run(beaconId);
+  return result.changes > 0;
+}
+
+/**
+ * Record a beacon sighting
+ * @param {Object} sightingData - Sighting data
+ * @returns {Object} Created sighting
+ */
+function recordBeaconSighting({ beaconId, proxyId, roomId, rssi }) {
+  const stmt = db.prepare(`
+    INSERT INTO beacon_sightings (beacon_id, proxy_id, room_id, rssi)
+    VALUES (?, ?, ?, ?)
+  `);
+  const result = stmt.run(beaconId, proxyId, roomId, rssi);
+
+  // Update beacon's last seen info
+  db.prepare(`
+    UPDATE beacons
+    SET last_proxy_id = ?, last_room_id = ?, last_rssi = ?, last_seen_at = datetime('now')
+    WHERE id = ?
+  `).run(proxyId, roomId, rssi, beaconId);
+
+  return { id: result.lastInsertRowid, beaconId, proxyId, roomId, rssi };
+}
+
+/**
+ * Update beacon entrance state
+ * @param {number} beaconId - Beacon ID
+ * @param {string} state - Entrance state ('outside', 'transitioning', 'inside', 'unknown')
+ * @returns {Object|null} Updated beacon
+ */
+function updateBeaconEntranceState(beaconId, state) {
+  db.prepare('UPDATE beacons SET entrance_state = ? WHERE id = ?').run(state, beaconId);
+  return getBeaconById(beaconId);
+}
+
+/**
+ * Get recent beacon sightings
+ * @param {number} beaconId - Beacon ID
+ * @param {number} limit - Number of sightings to return
+ * @returns {Array} Array of sightings
+ */
+function getRecentBeaconSightings(beaconId, limit = 10) {
+  return db.prepare(`
+    SELECT * FROM beacon_sightings
+    WHERE beacon_id = ?
+    ORDER BY seen_at DESC
+    LIMIT ?
+  `).all(beaconId, limit);
+}
+
+// ============================================================================
+// BLE Proxy Operations
+// ============================================================================
+
+/**
+ * Register a BLE proxy
+ * @param {Object} proxyData - Proxy data
+ * @returns {Object} Created proxy
+ */
+function registerBleProxy({ id, friendlyName, roomId, zoneType, rssiThreshold }) {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO ble_proxies (id, friendly_name, room_id, zone_type, rssi_threshold)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  stmt.run(id, friendlyName, roomId, zoneType || 'room', rssiThreshold || -70);
+  return getBleProxyById(id);
+}
+
+/**
+ * Get BLE proxy by ID
+ * @param {string} proxyId - Proxy ID
+ * @returns {Object|null} Proxy object or null
+ */
+function getBleProxyById(proxyId) {
+  return db.prepare('SELECT * FROM ble_proxies WHERE id = ?').get(proxyId) || null;
+}
+
+/**
+ * Get all BLE proxies
+ * @returns {Array} Array of proxies
+ */
+function getAllBleProxies() {
+  return db.prepare('SELECT * FROM ble_proxies ORDER BY friendly_name').all();
+}
+
+// ============================================================================
+// User Preferences Operations
+// ============================================================================
+
+/**
+ * Add a pattern to user's Oasis favorites
+ */
+function addUserOasisFavorite(userId, patternId, patternName) {
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO user_oasis_favorites (user_id, pattern_id, pattern_name)
+    VALUES (?, ?, ?)
+  `);
+  stmt.run(userId, patternId, patternName);
+}
+
+/**
+ * Remove a pattern from user's Oasis favorites
+ */
+function removeUserOasisFavorite(userId, patternId) {
+  db.prepare('DELETE FROM user_oasis_favorites WHERE user_id = ? AND pattern_id = ?').run(userId, patternId);
+}
+
+/**
+ * Get user's Oasis favorites
+ */
+function getUserOasisFavorites(userId) {
+  return db.prepare('SELECT * FROM user_oasis_favorites WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+}
+
+/**
+ * Vote on a track (thumbs up/down)
+ */
+function setUserTrackVote(userId, trackUri, trackName, artistName, vote) {
+  const stmt = db.prepare(`
+    INSERT INTO user_track_votes (user_id, track_uri, track_name, artist_name, vote)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, track_uri) DO UPDATE SET
+      vote = excluded.vote,
+      updated_at = datetime('now')
+  `);
+  stmt.run(userId, trackUri, trackName, artistName, vote);
+}
+
+/**
+ * Get user's track votes
+ */
+function getUserTrackVotes(userId) {
+  return db.prepare('SELECT * FROM user_track_votes WHERE user_id = ? ORDER BY updated_at DESC').all(userId);
+}
+
+/**
+ * Add a track attribution (user added this track)
+ */
+function addUserTrack(userId, trackUri, trackName, artistName, tasteId) {
+  const stmt = db.prepare(`
+    INSERT INTO user_added_tracks (user_id, track_uri, track_name, artist_name, taste_id)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  stmt.run(userId, trackUri, trackName, artistName, tasteId);
+}
+
+/**
+ * Get tracks added by a user
+ */
+function getUserAddedTracks(userId) {
+  return db.prepare('SELECT * FROM user_added_tracks WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+}
+
+/**
+ * Set user music preferences
+ */
+function setUserMusicPreferences(userId, { preferredTasteId, volumeOverride, playbackEnabled }) {
+  const stmt = db.prepare(`
+    INSERT INTO user_music_preferences (user_id, preferred_taste_id, volume_override, playback_enabled)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      preferred_taste_id = COALESCE(excluded.preferred_taste_id, preferred_taste_id),
+      volume_override = COALESCE(excluded.volume_override, volume_override),
+      playback_enabled = COALESCE(excluded.playback_enabled, playback_enabled),
+      updated_at = datetime('now')
+  `);
+  stmt.run(userId, preferredTasteId || null, volumeOverride || null, playbackEnabled !== undefined ? (playbackEnabled ? 1 : 0) : 1);
+}
+
+/**
+ * Get user music preferences
+ */
+function getUserMusicPreferences(userId) {
+  return db.prepare('SELECT * FROM user_music_preferences WHERE user_id = ?').get(userId) || null;
+}
+
+/**
+ * Set user color preferences
+ */
+function setUserColorPreferences(userId, { ledColor, ambientColor }) {
+  const stmt = db.prepare(`
+    INSERT INTO user_color_preferences (user_id, led_color, ambient_color)
+    VALUES (?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET
+      led_color = COALESCE(excluded.led_color, led_color),
+      ambient_color = COALESCE(excluded.ambient_color, ambient_color),
+      updated_at = datetime('now')
+  `);
+  stmt.run(userId, ledColor || null, ambientColor || null);
+}
+
+/**
+ * Get user color preferences
+ */
+function getUserColorPreferences(userId) {
+  return db.prepare('SELECT * FROM user_color_preferences WHERE user_id = ?').get(userId) || null;
+}
+
+/**
+ * Vote on media (thumbs up/down/hidden)
+ */
+function setUserMediaVote(userId, mediaUrl, mediaType, vote) {
+  const stmt = db.prepare(`
+    INSERT INTO user_media_votes (user_id, media_url, media_type, vote)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id, media_url) DO UPDATE SET
+      vote = excluded.vote,
+      updated_at = datetime('now')
+  `);
+  stmt.run(userId, mediaUrl, mediaType, vote);
+}
+
+/**
+ * Get user's media votes
+ */
+function getUserMediaVotes(userId) {
+  return db.prepare('SELECT * FROM user_media_votes WHERE user_id = ? ORDER BY updated_at DESC').all(userId);
+}
+
+// ============================================================================
+// Notification Operations
+// ============================================================================
+
+/**
+ * Create a notification
+ * @param {Object} notificationData - Notification data
+ * @returns {Object} Created notification
+ */
+function createNotification({ userId, groupType, title, message, type, actionUrl, senderUserId }) {
+  const stmt = db.prepare(`
+    INSERT INTO notifications (user_id, group_type, title, message, type, action_url, sender_user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const result = stmt.run(userId || null, groupType || null, title, message, type || 'info', actionUrl || null, senderUserId || null);
+  return getNotificationById(result.lastInsertRowid);
+}
+
+/**
+ * Get notification by ID
+ * @param {number} notificationId - Notification ID
+ * @returns {Object|null} Notification or null
+ */
+function getNotificationById(notificationId) {
+  return db.prepare('SELECT * FROM notifications WHERE id = ?').get(notificationId) || null;
+}
+
+/**
+ * Get unread notifications for a user
+ * @param {number} userId - User ID
+ * @returns {Array} Array of notifications
+ */
+function getUnreadNotifications(userId) {
+  return db.prepare(`
+    SELECT n.*, u.name as sender_name
+    FROM notifications n
+    LEFT JOIN users u ON n.sender_user_id = u.id
+    WHERE n.user_id = ? AND n.read_at IS NULL
+    ORDER BY n.created_at DESC
+  `).all(userId);
+}
+
+/**
+ * Get all notifications for a user
+ * @param {number} userId - User ID
+ * @param {number} limit - Max notifications to return
+ * @returns {Array} Array of notifications
+ */
+function getUserNotifications(userId, limit = 50) {
+  return db.prepare(`
+    SELECT n.*, u.name as sender_name
+    FROM notifications n
+    LEFT JOIN users u ON n.sender_user_id = u.id
+    WHERE n.user_id = ?
+    ORDER BY n.created_at DESC
+    LIMIT ?
+  `).all(userId, limit);
+}
+
+/**
+ * Mark a notification as read
+ * @param {number} notificationId - Notification ID
+ * @returns {boolean} True if marked
+ */
+function markNotificationRead(notificationId) {
+  const result = db.prepare(`
+    UPDATE notifications SET read_at = datetime('now') WHERE id = ? AND read_at IS NULL
+  `).run(notificationId);
+  return result.changes > 0;
+}
+
+/**
+ * Mark all notifications as read for a user
+ * @param {number} userId - User ID
+ * @returns {number} Number marked
+ */
+function markAllNotificationsRead(userId) {
+  const result = db.prepare(`
+    UPDATE notifications SET read_at = datetime('now') WHERE user_id = ? AND read_at IS NULL
+  `).run(userId);
+  return result.changes;
+}
+
+// ============================================================================
+// Push Subscription Operations
+// ============================================================================
+
+/**
+ * Save a push subscription
+ * @param {Object} subscriptionData - Subscription data
+ * @returns {Object} Created subscription
+ */
+function savePushSubscription({ userId, endpoint, p256dh, auth }) {
+  const stmt = db.prepare(`
+    INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET
+      user_id = excluded.user_id,
+      p256dh = excluded.p256dh,
+      auth = excluded.auth
+  `);
+  stmt.run(userId, endpoint, p256dh, auth);
+  return getPushSubscriptionByEndpoint(endpoint);
+}
+
+/**
+ * Get push subscription by endpoint
+ * @param {string} endpoint - Subscription endpoint
+ * @returns {Object|null} Subscription or null
+ */
+function getPushSubscriptionByEndpoint(endpoint) {
+  return db.prepare('SELECT * FROM push_subscriptions WHERE endpoint = ?').get(endpoint) || null;
+}
+
+/**
+ * Get push subscriptions for a user
+ * @param {number} userId - User ID
+ * @returns {Array} Array of subscriptions
+ */
+function getUserPushSubscriptions(userId) {
+  return db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(userId);
+}
+
+/**
+ * Remove a push subscription
+ * @param {string} endpoint - Subscription endpoint
+ * @returns {boolean} True if removed
+ */
+function removePushSubscription(endpoint) {
+  const result = db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
+  return result.changes > 0;
+}
+
+/**
+ * Get all push subscriptions (for broadcast)
+ * @returns {Array} Array of all subscriptions
+ */
+function getAllPushSubscriptions() {
+  return db.prepare('SELECT * FROM push_subscriptions').all();
+}
+
+// ============================================================================
 // Database Utilities
 // ============================================================================
 
@@ -2176,5 +2908,59 @@ module.exports = {
 
   // Oasis scheduler state
   getOasisSchedulerState,
-  updateOasisSchedulerState
+  updateOasisSchedulerState,
+
+  // Room operations
+  getAllRooms,
+  getRoomById,
+  updateRoomPosition,
+
+  // BLE Beacon operations
+  registerBeacon,
+  getBeaconById,
+  getBeaconByMac,
+  getBeaconByUser,
+  getUnclaimedBeacons,
+  getAllBeacons,
+  claimBeacon,
+  unclaimBeacon,
+  deleteBeacon,
+  recordBeaconSighting,
+  updateBeaconEntranceState,
+  getRecentBeaconSightings,
+
+  // BLE Proxy operations
+  registerBleProxy,
+  getBleProxyById,
+  getAllBleProxies,
+
+  // User preferences operations
+  addUserOasisFavorite,
+  removeUserOasisFavorite,
+  getUserOasisFavorites,
+  setUserTrackVote,
+  getUserTrackVotes,
+  addUserTrack,
+  getUserAddedTracks,
+  setUserMusicPreferences,
+  getUserMusicPreferences,
+  setUserColorPreferences,
+  getUserColorPreferences,
+  setUserMediaVote,
+  getUserMediaVotes,
+
+  // Notification operations
+  createNotification,
+  getNotificationById,
+  getUnreadNotifications,
+  getUserNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+
+  // Push subscription operations
+  savePushSubscription,
+  getPushSubscriptionByEndpoint,
+  getUserPushSubscriptions,
+  removePushSubscription,
+  getAllPushSubscriptions
 };
