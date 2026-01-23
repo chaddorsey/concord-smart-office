@@ -2726,11 +2726,11 @@ app.post('/api/beacons/register', authService.requireAuth, (req, res) => {
     }
 
     const beacon = db.registerBeacon({
-      mac_address,
-      beacon_uuid,
+      macAddress: mac_address,
+      beaconUuid: beacon_uuid,
       major: major !== undefined ? parseInt(major) : null,
       minor: minor !== undefined ? parseInt(minor) : null,
-      friendly_name
+      friendlyName: friendly_name
     });
 
     res.json({ success: true, beacon });
