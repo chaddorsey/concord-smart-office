@@ -22,18 +22,11 @@ function getAllRooms() {
  * @returns {number} Certainty value 0-1
  */
 function calculateSignalCertainty(lastSeenAt, lastRssi) {
-  if (!lastSeenAt || !lastRssi) return 0;
+  if (!lastRssi) return 0;
 
-  const MAX_ABSENCE_MS = 5 * 60 * 1000; // 5 minutes = certainty drops to 0
-  const ageMs = Date.now() - new Date(lastSeenAt).getTime();
-
-  // Age factor: 1.0 at 0ms, 0.0 at MAX_ABSENCE_MS
-  const ageFactor = Math.max(0, 1 - (ageMs / MAX_ABSENCE_MS));
-
-  // RSSI factor: -30 dBm (very strong) = 1.0, -90 dBm (very weak) = 0.0
-  const rssiFactor = Math.max(0, Math.min(1, (lastRssi + 90) / 60));
-
-  return ageFactor * rssiFactor;
+  // Signal certainty based solely on RSSI strength
+  // -30 dBm (very strong) = 1.0, -90 dBm (very weak) = 0.0
+  return Math.max(0, Math.min(1, (lastRssi + 90) / 60));
 }
 
 /**

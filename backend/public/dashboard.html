@@ -550,20 +550,29 @@
       filter: brightness(0) saturate(100%) invert(43%) sepia(98%) saturate(1552%) hue-rotate(176deg) brightness(96%) contrast(101%);
     }
 
-    /* BLE-tracked users: orange */
+    /* BLE-tracked users: orange at full certainty, fades to gray as certainty drops */
+    /* Saturation and opacity are set dynamically via inline styles based on signal_certainty */
     .map-person-icon.ble-tracked img.person-avatar-svg {
+      /* Base orange filter - saturation will be adjusted inline */
       filter: brightness(0) saturate(100%) invert(50%) sepia(88%) saturate(2193%) hue-rotate(4deg) brightness(103%) contrast(105%);
+      transition: filter 0.5s ease, opacity 0.5s ease;
     }
 
-    /* Untracked users: gray */
+    /* Untracked users (no BLE beacon): cyan */
     .map-person-icon.untracked img.person-avatar-svg {
-      filter: brightness(0) saturate(100%) invert(40%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(90%);
-      opacity: 0.7;
+      filter: brightness(0) saturate(100%) invert(43%) sepia(98%) saturate(1552%) hue-rotate(176deg) brightness(96%) contrast(101%);
     }
 
-    .map-person-icon.unknown img.person-avatar-svg {
-      filter: brightness(0) saturate(100%) invert(40%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(90%);
-      opacity: 0.5;
+    /* Faded state for low certainty BLE-tracked users */
+    .map-person-icon.ble-faded img.person-avatar-svg {
+      filter: brightness(0) saturate(100%) invert(50%) sepia(20%) saturate(500%) hue-rotate(4deg) brightness(103%) contrast(95%);
+      transition: filter 0.5s ease, opacity 0.5s ease;
+    }
+
+    /* Very faded / stale - approaching gray */
+    .map-person-icon.ble-stale img.person-avatar-svg {
+      filter: brightness(0) saturate(100%) invert(45%) sepia(5%) saturate(100%) hue-rotate(0deg) brightness(100%) contrast(90%);
+      transition: filter 0.5s ease, opacity 0.5s ease;
     }
 
     /* Name label below avatar */
@@ -1232,13 +1241,29 @@
               posY = person.position?.y || 50;
             }
 
-            // Determine tracking status and icon class
+            // Determine tracking status and icon class based on signal certainty
             const isTracked = person.is_tracked === true;
-            const iconClass = isTracked ? 'ble-tracked' : 'untracked';
-
-            // Calculate opacity based on signal certainty
             const certainty = person.signal_certainty || 0;
-            const opacity = isTracked ? Math.max(0.5, certainty) : 1;
+
+            // For BLE-tracked users, choose icon class based on certainty level
+            // High certainty (>0.6): bright orange
+            // Medium certainty (0.3-0.6): faded orange
+            // Low certainty (<0.3): stale/gray
+            let iconClass;
+            if (!isTracked) {
+              iconClass = 'untracked';
+            } else if (certainty >= 0.6) {
+              iconClass = 'ble-tracked';
+            } else if (certainty >= 0.3) {
+              iconClass = 'ble-faded';
+            } else {
+              iconClass = 'ble-stale';
+            }
+
+            // Calculate opacity: high certainty = fully visible, low certainty = fading out
+            // Untracked users stay at full opacity
+            // BLE-tracked: certainty 1.0 = opacity 1.0, certainty 0 = opacity 0.3
+            const opacity = isTracked ? Math.max(0.3, 0.3 + (certainty * 0.7)) : 1;
 
             // Get signal strength indicator class
             const signalClass = isTracked ? getSignalStrengthClass(certainty) : '';
@@ -1309,6 +1334,12 @@
         console.log('SSE: checkout event received');
         // Immediately update presence and map
         updatePresence();
+        updateMapPeople();
+      });
+
+      eventSource.addEventListener('room_update', (event) => {
+        console.log('SSE: room_update event received', event.data);
+        // Immediately update map when BLE tracking detects room change
         updateMapPeople();
       });
 
