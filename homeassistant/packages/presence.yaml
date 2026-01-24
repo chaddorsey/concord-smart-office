@@ -481,3 +481,47 @@ script:
         event_data:
           user_id: "{{ user_id }}"
           is_present: "{{ is_present }}"
+
+# ============================================================================
+# REST COMMANDS - BLE Room Updates to Backend
+# ============================================================================
+rest_command:
+  # Send BLE room update to backend when Bermuda detects room change
+  ble_room_update:
+    url: "http://backend:3001/api/ble/room-update"
+    method: POST
+    content_type: "application/json"
+    payload: '{"mac_address": "{{ mac_address }}", "roomId": "{{ room_id }}"}'
+
+# ============================================================================
+# AUTOMATIONS - BLE Room Tracking
+# ============================================================================
+automation:
+  # Generic automation for ALL Bermuda-tracked BLE tags
+  # Triggers on any Bermuda area sensor change, extracts MAC from attributes
+  - id: ble_room_tracking
+    alias: "BLE: Update Room Location on Bermuda Detection"
+    description: "Notify backend when any Bermuda-tracked BLE tag moves to a different room"
+    mode: parallel
+    max: 10
+    trigger:
+      - platform: event
+        event_type: state_changed
+    condition:
+      # Only process Bermuda area sensors (have current_mac attribute and end with _area)
+      - condition: template
+        value_template: >
+          {{ trigger.event.data.entity_id is defined and
+             trigger.event.data.entity_id.endswith('_area') and
+             trigger.event.data.new_state is not none and
+             trigger.event.data.new_state.attributes.get('current_mac') is not none and
+             trigger.event.data.new_state.state not in ['unknown', 'unavailable', ''] }}
+    action:
+      - service: rest_command.ble_room_update
+        data:
+          mac_address: "{{ trigger.event.data.new_state.attributes.current_mac | upper }}"
+          room_id: "{{ trigger.event.data.new_state.attributes.area_id | default(trigger.event.data.new_state.state | lower | replace(' ', '_')) }}"
+      - service: system_log.write
+        data:
+          message: "BLE room update: {{ trigger.event.data.new_state.attributes.current_mac }} -> {{ trigger.event.data.new_state.state }}"
+          level: info

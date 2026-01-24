@@ -2804,10 +2804,9 @@ app.post('/api/ble/room-update', (req, res) => {
 
     // Update beacon location
     db.updateBeaconLocation(beacon.id, {
-      room_id: roomId,
-      proxy_id: proxyId,
-      rssi: rssi || null,
-      distance: distance || null
+      roomId: roomId,
+      proxyId: proxyId,
+      rssi: rssi || null
     });
 
     // If beacon is claimed, update user's room_id in presence_state

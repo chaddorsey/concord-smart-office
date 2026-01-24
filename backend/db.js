@@ -2440,6 +2440,39 @@ function updateBeaconEntranceState(beaconId, state) {
 }
 
 /**
+ * Update beacon location (room, proxy, rssi)
+ * @param {number} beaconId - Beacon ID
+ * @param {Object} locationData - Location data { roomId, proxyId, rssi }
+ * @returns {Object|null} Updated beacon
+ */
+function updateBeaconLocation(beaconId, { roomId, proxyId, rssi }) {
+  const updates = [];
+  const values = [];
+
+  if (roomId !== undefined) {
+    updates.push('last_room_id = ?');
+    values.push(roomId);
+  }
+  if (proxyId !== undefined) {
+    updates.push('last_proxy_id = ?');
+    values.push(proxyId);
+  }
+  if (rssi !== undefined) {
+    updates.push('last_rssi = ?');
+    values.push(rssi);
+  }
+
+  updates.push('last_seen_at = datetime(\'now\')');
+  values.push(beaconId);
+
+  if (updates.length > 1) {
+    db.prepare(`UPDATE beacons SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  return getBeaconById(beaconId);
+}
+
+/**
  * Get recent beacon sightings
  * @param {number} beaconId - Beacon ID
  * @param {number} limit - Number of sightings to return
@@ -2928,6 +2961,7 @@ module.exports = {
   deleteBeacon,
   recordBeaconSighting,
   updateBeaconEntranceState,
+  updateBeaconLocation,
   getRecentBeaconSightings,
 
   // BLE Proxy operations
