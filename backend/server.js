@@ -41,6 +41,7 @@ const PORT = process.env.PORT || 3001;
 const HA_URL = process.env.HA_URL || 'http://homeassistant.local:8123';
 const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY || '';
 const PWA_URL = process.env.PWA_URL || 'http://localhost:5173';
+const PUBLIC_URL = process.env.PUBLIC_URL || PWA_URL; // User-facing URL for redirects after OAuth
 
 // Check if Google OAuth is configured
 const GOOGLE_OAUTH_CONFIGURED = !!(
@@ -278,33 +279,40 @@ app.get('/api/auth/google', (req, res) => {
   req.app.locals.oauthReturnUrls = req.app.locals.oauthReturnUrls || new Map();
   req.app.locals.oauthReturnUrls.set(state, returnUrl);
 
-  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-    `client_id=${process.env.GOOGLE_CLIENT_ID}&` +
-    `redirect_uri=${encodeURIComponent(process.env.AUTH_CALLBACK_URL || `http://localhost:${PORT}/api/auth/google/callback`)}&` +
-    `response_type=code&` +
-    `scope=email%20profile&` +
-    `state=${state}&` +
-    `hd=${process.env.GOOGLE_ALLOWED_DOMAIN}`;
+  const params = new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    redirect_uri: process.env.AUTH_CALLBACK_URL || `http://localhost:${PORT}/api/auth/google/callback`,
+    response_type: 'code',
+    scope: 'openid email profile https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events',
+    state: state,
+    hd: process.env.GOOGLE_ALLOWED_DOMAIN,
+    prompt: 'consent',
+    access_type: 'offline',
+    include_granted_scopes: 'true'
+  });
 
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+
+  console.log('[OAuth] Auth URL:', authUrl);
   res.redirect(authUrl);
 });
 
-// GET /api/auth/google/callback - OAuth callback, create session, redirect to PWA
+// GET /api/auth/google/callback - OAuth callback, create session, redirect to PUBLIC_URL
 app.get('/api/auth/google/callback', async (req, res) => {
   if (!GOOGLE_OAUTH_CONFIGURED) {
-    return res.redirect(`${PWA_URL}?error=oauth_not_configured`);
+    return res.redirect(`${PUBLIC_URL}?error=oauth_not_configured`);
   }
 
   const { code, state, error } = req.query;
 
   if (error) {
     console.error('OAuth error:', error);
-    return res.redirect(`${PWA_URL}?error=${encodeURIComponent(error)}`);
+    return res.redirect(`${PUBLIC_URL}?error=${encodeURIComponent(error)}`);
   }
 
   // Verify state
   if (!authService.oauthStateStore.verify(state)) {
-    return res.redirect(`${PWA_URL}?error=invalid_state`);
+    return res.redirect(`${PUBLIC_URL}?error=invalid_state`);
   }
 
   // Get return URL from state
@@ -329,7 +337,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
     if (tokens.error) {
       console.error('Token exchange error:', tokens.error);
-      return res.redirect(`${PWA_URL}?error=token_exchange_failed`);
+      return res.redirect(`${PUBLIC_URL}?error=token_exchange_failed`);
     }
 
     // Get user info from Google
@@ -341,7 +349,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
     // Verify domain
     if (userInfo.hd !== process.env.GOOGLE_ALLOWED_DOMAIN) {
-      return res.redirect(`${PWA_URL}?error=domain_not_allowed`);
+      return res.redirect(`${PUBLIC_URL}?error=domain_not_allowed`);
     }
 
     // Find or create user
@@ -365,15 +373,15 @@ app.get('/api/auth/google/callback', async (req, res) => {
     // Create session
     await authService.createSession(res, user.id);
 
-    // Redirect to PWA with success
+    // Redirect to PUBLIC_URL with success
     const redirectUrl = returnUrl.startsWith('/tap/')
-      ? `${PWA_URL}${returnUrl}`
-      : `${PWA_URL}?login=success`;
+      ? `${PUBLIC_URL}${returnUrl}`
+      : `${PUBLIC_URL}?login=success`;
 
     res.redirect(redirectUrl);
   } catch (err) {
     console.error('OAuth callback error:', err);
-    res.redirect(`${PWA_URL}?error=auth_failed`);
+    res.redirect(`${PUBLIC_URL}?error=auth_failed`);
   }
 });
 
@@ -884,18 +892,24 @@ app.get('/tap/:kioskId', async (req, res) => {
       req.app.locals.oauthReturnUrls = req.app.locals.oauthReturnUrls || new Map();
       req.app.locals.oauthReturnUrls.set(state, returnUrl);
 
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-        `client_id=${process.env.GOOGLE_CLIENT_ID}&` +
-        `redirect_uri=${encodeURIComponent(process.env.AUTH_CALLBACK_URL || `http://localhost:${PORT}/api/auth/google/callback`)}&` +
-        `response_type=code&` +
-        `scope=email%20profile&` +
-        `state=${state}&` +
-        `hd=${process.env.GOOGLE_ALLOWED_DOMAIN}`;
+      const params = new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        redirect_uri: process.env.AUTH_CALLBACK_URL || `http://localhost:${PORT}/api/auth/google/callback`,
+        response_type: 'code',
+        scope: 'openid email profile https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events',
+        state: state,
+        hd: process.env.GOOGLE_ALLOWED_DOMAIN,
+        prompt: 'consent',
+        access_type: 'offline',
+        include_granted_scopes: 'true'
+      });
+
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 
       return res.redirect(authUrl);
     } else {
       // Demo mode - redirect to PWA login page
-      return res.redirect(`${PWA_URL}/login?returnUrl=${encodeURIComponent(returnUrl)}`);
+      return res.redirect(`${PUBLIC_URL}/login?returnUrl=${encodeURIComponent(returnUrl)}`);
     }
   }
 
@@ -905,7 +919,7 @@ app.get('/tap/:kioskId', async (req, res) => {
     const validation = await kioskService.validateToken(token, clientIp);
 
     if (!validation.valid) {
-      return res.redirect(`${PWA_URL}/dashboard?error=${encodeURIComponent(validation.error)}`);
+      return res.redirect(`${PUBLIC_URL}/dashboard?error=${encodeURIComponent(validation.error)}`);
     }
 
     // Check user in using presenceService (handles DB + HA webhook)
@@ -921,11 +935,11 @@ app.get('/tap/:kioskId', async (req, res) => {
       source: 'qr'
     });
 
-    // Redirect to PWA dashboard with success
-    res.redirect(`${PWA_URL}/dashboard?checkin=success&kiosk=${kioskId}`);
+    // Redirect to PUBLIC_URL dashboard with success
+    res.redirect(`${PUBLIC_URL}/dashboard?checkin=success&kiosk=${kioskId}`);
   } catch (error) {
     console.error('Check-in flow error:', error);
-    res.redirect(`${PWA_URL}/dashboard?error=checkin_failed`);
+    res.redirect(`${PUBLIC_URL}/dashboard?error=checkin_failed`);
   }
 });
 
