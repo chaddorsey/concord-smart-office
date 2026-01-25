@@ -1,0 +1,10 @@
+%YAML 1.1
+---
+# ser2net configuration for Zigbee coordinator bridge
+# Exposes Sonoff Zigbee 3.0 USB Dongle Plus V2 over TCP for Home Assistant ZHA
+
+connection: &zigbee
+  accepter: tcp,8888
+  connector: serialdev,/dev/cu.usbserial-1130,115200n81,local
+  options:
+    kickolduser: true
