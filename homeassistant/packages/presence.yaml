@@ -491,7 +491,7 @@ rest_command:
     url: "http://backend:3001/api/ble/room-update"
     method: POST
     content_type: "application/json"
-    payload: '{"mac_address": "{{ mac_address }}", "roomId": "{{ room_id }}"}'
+    payload: '{"mac_address": "{{ mac_address }}", "roomId": "{{ room_id }}", "distance": {{ distance | default(0) }}}'
 
 # ============================================================================
 # AUTOMATIONS - BLE Room Tracking
@@ -517,11 +517,15 @@ automation:
              trigger.event.data.new_state.attributes.get('current_mac') is not none and
              trigger.event.data.new_state.state not in ['unknown', 'unavailable', ''] }}
     action:
+      - variables:
+          distance_sensor: "{{ trigger.event.data.entity_id | replace('_area', '_distance') }}"
+          distance_value: "{{ states(distance_sensor) | float(0) }}"
       - service: rest_command.ble_room_update
         data:
           mac_address: "{{ trigger.event.data.new_state.attributes.current_mac | upper }}"
           room_id: "{{ trigger.event.data.new_state.attributes.area_id | default(trigger.event.data.new_state.state | lower | replace(' ', '_')) }}"
+          distance: "{{ distance_value }}"
       - service: system_log.write
         data:
-          message: "BLE room update: {{ trigger.event.data.new_state.attributes.current_mac }} -> {{ trigger.event.data.new_state.state }}"
+          message: "BLE room update: {{ trigger.event.data.new_state.attributes.current_mac }} -> {{ trigger.event.data.new_state.state }} ({{ distance_value }} ft)"
           level: info

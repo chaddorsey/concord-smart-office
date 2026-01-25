@@ -2645,6 +2645,39 @@ app.get('/api/map/occupancy', (req, res) => {
 });
 
 // ============================================================================
+// BLE Distance Cache (for multi-proxy room boundary detection)
+// ============================================================================
+
+// Track last known distance from each proxy for each beacon MAC
+// Format: { macAddress: { proxyId: { distance: ft, timestamp: Date } } }
+const beaconProxyDistances = new Map();
+
+// Cache duration in milliseconds (distances older than this are ignored)
+const DISTANCE_CACHE_TTL = 30000; // 30 seconds
+
+function updateProxyDistance(macAddress, proxyId, roomId, distance) {
+  if (!beaconProxyDistances.has(macAddress)) {
+    beaconProxyDistances.set(macAddress, {});
+  }
+  const distances = beaconProxyDistances.get(macAddress);
+  distances[roomId] = { distance, proxyId, timestamp: Date.now() };
+}
+
+function getRecentDistances(macAddress) {
+  const distances = beaconProxyDistances.get(macAddress);
+  if (!distances) return {};
+
+  const now = Date.now();
+  const recent = {};
+  for (const [roomId, data] of Object.entries(distances)) {
+    if (now - data.timestamp < DISTANCE_CACHE_TTL) {
+      recent[roomId] = data.distance;
+    }
+  }
+  return recent;
+}
+
+// ============================================================================
 // BLE Beacon Routes (/api/beacons, /api/ble)
 // ============================================================================
 
@@ -2776,7 +2809,23 @@ app.delete('/api/beacons/:id', authService.requireAuth, (req, res) => {
 // Supports mac_address (preferred) or beaconIdentifier (uuid_major_minor format)
 app.post('/api/ble/room-update', (req, res) => {
   try {
-    const { mac_address, beaconIdentifier, roomId, distance, proxyId, rssi } = req.body;
+    const { mac_address, beaconIdentifier, roomId, distance, proxyId, rssi, all_distances } = req.body;
+
+    // Cache this distance measurement for multi-proxy room boundary detection
+    const lookupMac = mac_address || (beaconIdentifier ? `beacon:${beaconIdentifier}` : null);
+    if (lookupMac && distance !== undefined && roomId) {
+      updateProxyDistance(lookupMac, proxyId, roomId, distance);
+    }
+
+    // Get all recent distances from cache (includes this one + others from different proxies)
+    const cachedDistances = lookupMac ? getRecentDistances(lookupMac) : {};
+    const effectiveAllDistances = all_distances || cachedDistances;
+
+    // Log calibration data for boundary tuning
+    console.log(`[BLE-CAL] Room update: room=${roomId}, proxy=${proxyId}, distance=${distance?.toFixed(1)}ft, rssi=${rssi}`);
+    if (Object.keys(effectiveAllDistances).length > 0) {
+      console.log(`[BLE-CAL] All distances:`, JSON.stringify(effectiveAllDistances));
+    }
 
     let beacon = null;
 
@@ -2802,11 +2851,60 @@ app.post('/api/ble/room-update', (req, res) => {
       return res.status(404).json({ error: 'Beacon not found' });
     }
 
+    // Estimate RSSI from distance if not provided directly
+    // Formula: RSSI = TxPower - 10 * n * log10(distance_meters)
+    // Room-specific calibration so middle-of-room distances show as orange (~0.65 certainty)
+    let effectiveRssi = rssi;
+    if (!effectiveRssi && distance && distance > 0) {
+      const distanceMeters = distance * 0.3048; // feet to meters
+      // Room-specific txPower: Cafe is larger, so 15ft = orange; others use 12ft = orange
+      const roomTxPower = {
+        'cafe': -38,        // 15ft = 0.65 certainty (larger room)
+        'default': -40      // 12ft = 0.65 certainty (standard rooms)
+      };
+      const txPower = roomTxPower[roomId] || roomTxPower['default'];
+      const pathLoss = 2;
+      effectiveRssi = Math.round(txPower - 10 * pathLoss * Math.log10(Math.max(0.1, distanceMeters)));
+      // Clamp to reasonable BLE range
+      effectiveRssi = Math.max(-100, Math.min(-30, effectiveRssi));
+    }
+
+    // Room boundary calibration overrides
+    // The Wonder Room proxy is physically located on the Work Stations wall.
+    // When someone is in Work Stations near that wall, they appear closer to wonder_room.
+    // Calibration data: At boundary, wonder_room=5.9ft, work_stations=30.2ft
+    // Rule: If wonder_room < 10ft AND work_stations is detected at any distance, override to work_stations
+    const ROOM_BOUNDARY_OVERRIDES = {
+      'wonder_room': {
+        // Wonder proxy is on Work Stations wall - override when very close to wonder
+        // and work_stations proxy can see the beacon at all (< 50ft)
+        'work_stations': { maxDistance: 50, minOwnDistance: 10 },
+        'workstations': { maxDistance: 50, minOwnDistance: 10 }
+      }
+    };
+
+    let finalRoomId = roomId;
+
+    // Check if we should override the room based on distances
+    if (Object.keys(effectiveAllDistances).length > 0 && ROOM_BOUNDARY_OVERRIDES[roomId]) {
+      const overrides = ROOM_BOUNDARY_OVERRIDES[roomId];
+      for (const [adjacentRoom, thresholds] of Object.entries(overrides)) {
+        const adjacentDistance = effectiveAllDistances[adjacentRoom];
+        if (adjacentDistance !== undefined &&
+            adjacentDistance < thresholds.maxDistance &&
+            (distance === undefined || distance < thresholds.minOwnDistance)) {
+          console.log(`[BLE-CAL] Room override: ${roomId} -> ${adjacentRoom} (own=${distance?.toFixed(1)}ft < ${thresholds.minOwnDistance}ft, adjacent=${adjacentDistance.toFixed(1)}ft detected)`);
+          finalRoomId = adjacentRoom;
+          break;
+        }
+      }
+    }
+
     // Update beacon location
     db.updateBeaconLocation(beacon.id, {
-      roomId: roomId,
+      roomId: finalRoomId,
       proxyId: proxyId,
-      rssi: rssi || null
+      rssi: effectiveRssi || null
     });
 
     // If beacon is claimed, update user's room_id in presence_state
@@ -2815,21 +2913,21 @@ app.post('/api/ble/room-update', (req, res) => {
       if (presence && presence.status === 'in') {
         db.setPresenceState(beacon.claimed_by_user_id, {
           ...presence,
-          room_id: roomId
+          room_id: finalRoomId
         });
 
-        console.log(`[BLE] Updated room for user ${beacon.claimed_by_user_id}: ${roomId}`);
+        console.log(`[BLE] Updated room for user ${beacon.claimed_by_user_id}: ${finalRoomId}`);
 
         // Broadcast room update via SSE
         broadcastEvent('room_update', {
           user_id: beacon.claimed_by_user_id,
-          room_id: roomId,
+          room_id: finalRoomId,
           beacon_id: beacon.id
         });
       }
     }
 
-    res.json({ success: true, beacon_id: beacon.id, room_id: roomId });
+    res.json({ success: true, beacon_id: beacon.id, room_id: finalRoomId });
   } catch (error) {
     console.error('Failed to process BLE room update:', error);
     res.status(500).json({ error: error.message });

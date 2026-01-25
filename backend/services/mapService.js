@@ -16,17 +16,40 @@ function getAllRooms() {
 }
 
 /**
- * Calculate signal certainty based on RSSI and time since last seen
+ * Calculate signal certainty based on time since last seen
+ * - Recently seen (within 5s) = 1.0 (solid orange)
+ * - Fades linearly to 0 over 30 seconds
+ * - After 30s = 0 (gray/hidden)
+ *
  * @param {string|null} lastSeenAt - ISO timestamp of last beacon sighting
- * @param {number|null} lastRssi - Last RSSI value (-30 to -100 typical)
+ * @param {number|null} lastRssi - Last RSSI value (not used in time-based calculation)
  * @returns {number} Certainty value 0-1
  */
 function calculateSignalCertainty(lastSeenAt, lastRssi) {
-  if (!lastRssi) return 0;
+  if (!lastSeenAt) return 0;
 
-  // Signal certainty based solely on RSSI strength
-  // -30 dBm (very strong) = 1.0, -90 dBm (very weak) = 0.0
-  return Math.max(0, Math.min(1, (lastRssi + 90) / 60));
+  const now = Date.now();
+  // SQLite datetime() stores UTC without timezone indicator
+  // Append 'Z' to parse as UTC if not already in ISO format
+  const timestamp = lastSeenAt.includes('T') ? lastSeenAt : lastSeenAt.replace(' ', 'T') + 'Z';
+  const lastSeen = new Date(timestamp).getTime();
+  const secondsAgo = (now - lastSeen) / 1000;
+
+  // If seen within last 5 seconds, full certainty (solid orange)
+  if (secondsAgo <= 5) {
+    return 1.0;
+  }
+
+  // Fade from 1.0 to 0 over the next 25 seconds (5s to 30s)
+  // At 5s: 1.0, at 30s: 0.0
+  const fadeSeconds = 25;
+  const fadeProgress = (secondsAgo - 5) / fadeSeconds;
+
+  if (fadeProgress >= 1) {
+    return 0; // 30+ seconds ago, fully faded
+  }
+
+  return Math.max(0, 1.0 - fadeProgress);
 }
 
 /**

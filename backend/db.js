@@ -642,12 +642,13 @@ function initDatabase() {
       // Room positions based on SVG viewBox 0 0 1776 590.44 and floor plan analysis
       insertRoom.run('museum', 'The Museum', 1, 142, 47);
       insertRoom.run('cafe', 'The Café', 2, 497, 47);
-      insertRoom.run('shop', 'The Shop', 3, 1634, 47);
-      insertRoom.run('entry', 'Entry', 4, 89, 265);
-      insertRoom.run('bubble', 'The Bubble Room', 5, 817, 413);
-      insertRoom.run('aviary', 'The Aviary', 6, 1030, 413);
-      insertRoom.run('wonder', 'Wonder Room', 7, 1279, 295);
-      insertRoom.run('workstations', 'Work Stations', 8, 1598, 295);
+      insertRoom.run('quiet_huddle', 'Quiet Huddle', 3, 1421, 47);
+      insertRoom.run('shop', 'The Shop', 4, 1634, 47);
+      insertRoom.run('entry', 'Entry', 5, 89, 265);
+      insertRoom.run('bubble_room', 'The Bubble Room', 6, 817, 413);
+      insertRoom.run('aviary', 'The Aviary', 7, 1030, 413);
+      insertRoom.run('wonder_room', 'Wonder Room', 8, 1279, 295);
+      insertRoom.run('workstations', 'Work Stations', 9, 1598, 295);
     }
   });
 
