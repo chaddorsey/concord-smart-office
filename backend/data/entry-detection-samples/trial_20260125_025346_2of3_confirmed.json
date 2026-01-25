@@ -1,0 +1,722 @@
+{
+  "events": [
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "bubble_room",
+      "original_room": "bubble_room",
+      "distance": 16.4041994750656,
+      "rssi": -54,
+      "all_distances": {
+        "aviary": 24.2782152230971,
+        "bubble_room": 16.4041994750656
+      },
+      "timestamp": 1769327385462,
+      "time_iso": "2026-01-25T07:49:45.462Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "cafe",
+      "original_room": "cafe",
+      "distance": 16.4041994750656,
+      "rssi": -52,
+      "all_distances": {
+        "bubble_room": 16.4041994750656,
+        "cafe": 16.4041994750656
+      },
+      "timestamp": 1769327414471,
+      "time_iso": "2026-01-25T07:50:14.471Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "open",
+      "source_timestamp": "2026-01-25T02:50:25.119278-05:00",
+      "distance_snapshot": {
+        "9": {
+          "bubble_room": {
+            "distance": 16.4041994750656,
+            "rssi": -54,
+            "timestamp": 1769327385462,
+            "age_ms": 39664
+          },
+          "cafe": {
+            "distance": 16.4041994750656,
+            "rssi": -52,
+            "timestamp": 1769327414471,
+            "age_ms": 10655
+          }
+        }
+      },
+      "timestamp": 1769327425126,
+      "time_iso": "2026-01-25T07:50:25.126Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "entry_lobby",
+      "original_room": "entry_lobby",
+      "distance": 14.1076115485564,
+      "rssi": -53,
+      "all_distances": {
+        "cafe": 16.4041994750656,
+        "entry_lobby": 14.1076115485564
+      },
+      "timestamp": 1769327426470,
+      "time_iso": "2026-01-25T07:50:26.470Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "closed",
+      "source_timestamp": "2026-01-25T02:50:29.706864-05:00",
+      "distance_snapshot": {
+        "9": {
+          "bubble_room": {
+            "distance": 16.4041994750656,
+            "rssi": -54,
+            "timestamp": 1769327385462,
+            "age_ms": 44246
+          },
+          "cafe": {
+            "distance": 16.4041994750656,
+            "rssi": -52,
+            "timestamp": 1769327414471,
+            "age_ms": 15237
+          },
+          "entry_lobby": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327426470,
+            "age_ms": 3238
+          }
+        }
+      },
+      "timestamp": 1769327429708,
+      "time_iso": "2026-01-25T07:50:29.708Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "entry_outside",
+      "original_room": "entry_outside",
+      "distance": 11.1548556430446,
+      "rssi": -51,
+      "all_distances": {
+        "entry_lobby": 14.1076115485564,
+        "entry_outside": 11.1548556430446
+      },
+      "timestamp": 1769327447470,
+      "time_iso": "2026-01-25T07:50:47.470Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "open",
+      "source_timestamp": "2026-01-25T02:50:54.617725-05:00",
+      "distance_snapshot": {
+        "9": {
+          "cafe": {
+            "distance": 16.4041994750656,
+            "rssi": -52,
+            "timestamp": 1769327414471,
+            "age_ms": 40154
+          },
+          "entry_lobby": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327426470,
+            "age_ms": 28155
+          },
+          "entry_outside": {
+            "distance": 11.1548556430446,
+            "rssi": -51,
+            "timestamp": 1769327447470,
+            "age_ms": 7155
+          }
+        }
+      },
+      "timestamp": 1769327454625,
+      "time_iso": "2026-01-25T07:50:54.625Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "closed",
+      "source_timestamp": "2026-01-25T02:50:58.674131-05:00",
+      "distance_snapshot": {
+        "9": {
+          "cafe": {
+            "distance": 16.4041994750656,
+            "rssi": -52,
+            "timestamp": 1769327414471,
+            "age_ms": 44206
+          },
+          "entry_lobby": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327426470,
+            "age_ms": 32207
+          },
+          "entry_outside": {
+            "distance": 11.1548556430446,
+            "rssi": -51,
+            "timestamp": 1769327447470,
+            "age_ms": 11207
+          }
+        }
+      },
+      "timestamp": 1769327458677,
+      "time_iso": "2026-01-25T07:50:58.677Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "entry_lobby",
+      "original_room": "entry_lobby",
+      "distance": 14.1076115485564,
+      "rssi": -53,
+      "all_distances": {
+        "entry_lobby": 14.1076115485564,
+        "entry_outside": 11.1548556430446
+      },
+      "timestamp": 1769327460468,
+      "time_iso": "2026-01-25T07:51:00.468Z"
+    },
+    {
+      "type": "entry_confirmed",
+      "user_id": 9,
+      "beacon_id": 1,
+      "door_id": "front_door",
+      "outside_distance": 11.1548556430446,
+      "outside_rssi": -51,
+      "lobby_distance": 14.1076115485564,
+      "lobby_rssi": -53,
+      "total_transit_ms": 12998,
+      "door_to_lobby_ms": 5843,
+      "outside_to_door_ms": 7155,
+      "ble_context": [
+        {
+          "type": "ble_proximity",
+          "beacon_id": 1,
+          "mac_address": "DD:88:00:00:12:EE",
+          "user_id": 9,
+          "room_id": "cafe",
+          "original_room": "cafe",
+          "distance": 16.4041994750656,
+          "rssi": -52,
+          "all_distances": {
+            "bubble_room": 16.4041994750656,
+            "cafe": 16.4041994750656
+          },
+          "timestamp": 1769327414471,
+          "time_iso": "2026-01-25T07:50:14.471Z"
+        },
+        {
+          "type": "ble_proximity",
+          "beacon_id": 1,
+          "mac_address": "DD:88:00:00:12:EE",
+          "user_id": 9,
+          "room_id": "entry_lobby",
+          "original_room": "entry_lobby",
+          "distance": 14.1076115485564,
+          "rssi": -53,
+          "all_distances": {
+            "cafe": 16.4041994750656,
+            "entry_lobby": 14.1076115485564
+          },
+          "timestamp": 1769327426470,
+          "time_iso": "2026-01-25T07:50:26.470Z"
+        },
+        {
+          "type": "ble_proximity",
+          "beacon_id": 1,
+          "mac_address": "DD:88:00:00:12:EE",
+          "user_id": 9,
+          "room_id": "entry_outside",
+          "original_room": "entry_outside",
+          "distance": 11.1548556430446,
+          "rssi": -51,
+          "all_distances": {
+            "entry_lobby": 14.1076115485564,
+            "entry_outside": 11.1548556430446
+          },
+          "timestamp": 1769327447470,
+          "time_iso": "2026-01-25T07:50:47.470Z"
+        }
+      ],
+      "door_snapshot": {
+        "cafe": {
+          "distance": 16.4041994750656,
+          "rssi": -52,
+          "timestamp": 1769327414471,
+          "age_ms": 40155
+        },
+        "entry_lobby": {
+          "distance": 14.1076115485564,
+          "rssi": -53,
+          "timestamp": 1769327426470,
+          "age_ms": 28156
+        },
+        "entry_outside": {
+          "distance": 11.1548556430446,
+          "rssi": -51,
+          "timestamp": 1769327447470,
+          "age_ms": 7156
+        }
+      },
+      "lobby_snapshot": {
+        "entry_lobby": 14.1076115485564,
+        "entry_outside": 11.1548556430446
+      },
+      "timestamp": 1769327460468,
+      "time_iso": "2026-01-25T07:51:00.468Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "open",
+      "source_timestamp": "2026-01-25T02:51:15.162379-05:00",
+      "distance_snapshot": {
+        "9": {
+          "entry_outside": {
+            "distance": 11.1548556430446,
+            "rssi": -51,
+            "timestamp": 1769327447470,
+            "age_ms": 27695
+          },
+          "entry_lobby": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327460468,
+            "age_ms": 14697
+          }
+        }
+      },
+      "timestamp": 1769327475165,
+      "time_iso": "2026-01-25T07:51:15.165Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "entry_outside",
+      "original_room": "entry_outside",
+      "distance": 8.85826771653544,
+      "rssi": -49,
+      "all_distances": {
+        "entry_lobby": 14.1076115485564,
+        "entry_outside": 8.85826771653544
+      },
+      "timestamp": 1769327478468,
+      "time_iso": "2026-01-25T07:51:18.468Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "closed",
+      "source_timestamp": "2026-01-25T02:51:19.877193-05:00",
+      "distance_snapshot": {
+        "9": {
+          "entry_outside": {
+            "distance": 8.85826771653544,
+            "rssi": -49,
+            "timestamp": 1769327478468,
+            "age_ms": 1412
+          },
+          "entry_lobby": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327460468,
+            "age_ms": 19412
+          }
+        }
+      },
+      "timestamp": 1769327479880,
+      "time_iso": "2026-01-25T07:51:19.880Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "museum",
+      "original_room": "museum",
+      "distance": 17.0603674540682,
+      "rssi": -54,
+      "all_distances": {
+        "entry_lobby": 14.1076115485564,
+        "entry_outside": 8.85826771653544,
+        "museum": 17.0603674540682
+      },
+      "timestamp": 1769327483466,
+      "time_iso": "2026-01-25T07:51:23.466Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "entry_outside",
+      "original_room": "entry_outside",
+      "distance": 14.1076115485564,
+      "rssi": -53,
+      "all_distances": {
+        "entry_outside": 14.1076115485564,
+        "museum": 17.0603674540682
+      },
+      "timestamp": 1769327496465,
+      "time_iso": "2026-01-25T07:51:36.465Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "open",
+      "source_timestamp": "2026-01-25T02:51:43.876815-05:00",
+      "distance_snapshot": {
+        "9": {
+          "entry_lobby": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327460468,
+            "age_ms": 43415
+          },
+          "entry_outside": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327496465,
+            "age_ms": 7418
+          },
+          "museum": {
+            "distance": 17.0603674540682,
+            "rssi": -54,
+            "timestamp": 1769327483466,
+            "age_ms": 20417
+          }
+        }
+      },
+      "timestamp": 1769327503883,
+      "time_iso": "2026-01-25T07:51:43.883Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "closed",
+      "source_timestamp": "2026-01-25T02:51:47.864115-05:00",
+      "distance_snapshot": {
+        "9": {
+          "entry_outside": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327496465,
+            "age_ms": 11402
+          },
+          "museum": {
+            "distance": 17.0603674540682,
+            "rssi": -54,
+            "timestamp": 1769327483466,
+            "age_ms": 24401
+          }
+        }
+      },
+      "timestamp": 1769327507867,
+      "time_iso": "2026-01-25T07:51:47.867Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "entry_lobby",
+      "original_room": "entry_lobby",
+      "distance": 8.20209973753281,
+      "rssi": -48,
+      "all_distances": {
+        "entry_lobby": 8.20209973753281,
+        "entry_outside": 14.1076115485564,
+        "museum": 17.0603674540682
+      },
+      "timestamp": 1769327508466,
+      "time_iso": "2026-01-25T07:51:48.466Z"
+    },
+    {
+      "type": "entry_confirmed",
+      "user_id": 9,
+      "beacon_id": 1,
+      "door_id": "front_door",
+      "outside_distance": 14.1076115485564,
+      "outside_rssi": -53,
+      "lobby_distance": 8.20209973753281,
+      "lobby_rssi": -48,
+      "total_transit_ms": 12002,
+      "door_to_lobby_ms": 4584,
+      "outside_to_door_ms": 7418,
+      "ble_context": [
+        {
+          "type": "ble_proximity",
+          "beacon_id": 1,
+          "mac_address": "DD:88:00:00:12:EE",
+          "user_id": 9,
+          "room_id": "entry_lobby",
+          "original_room": "entry_lobby",
+          "distance": 14.1076115485564,
+          "rssi": -53,
+          "all_distances": {
+            "entry_lobby": 14.1076115485564,
+            "entry_outside": 11.1548556430446
+          },
+          "timestamp": 1769327460468,
+          "time_iso": "2026-01-25T07:51:00.468Z"
+        },
+        {
+          "type": "ble_proximity",
+          "beacon_id": 1,
+          "mac_address": "DD:88:00:00:12:EE",
+          "user_id": 9,
+          "room_id": "entry_outside",
+          "original_room": "entry_outside",
+          "distance": 8.85826771653544,
+          "rssi": -49,
+          "all_distances": {
+            "entry_lobby": 14.1076115485564,
+            "entry_outside": 8.85826771653544
+          },
+          "timestamp": 1769327478468,
+          "time_iso": "2026-01-25T07:51:18.468Z"
+        },
+        {
+          "type": "ble_proximity",
+          "beacon_id": 1,
+          "mac_address": "DD:88:00:00:12:EE",
+          "user_id": 9,
+          "room_id": "museum",
+          "original_room": "museum",
+          "distance": 17.0603674540682,
+          "rssi": -54,
+          "all_distances": {
+            "entry_lobby": 14.1076115485564,
+            "entry_outside": 8.85826771653544,
+            "museum": 17.0603674540682
+          },
+          "timestamp": 1769327483466,
+          "time_iso": "2026-01-25T07:51:23.466Z"
+        },
+        {
+          "type": "ble_proximity",
+          "beacon_id": 1,
+          "mac_address": "DD:88:00:00:12:EE",
+          "user_id": 9,
+          "room_id": "entry_outside",
+          "original_room": "entry_outside",
+          "distance": 14.1076115485564,
+          "rssi": -53,
+          "all_distances": {
+            "entry_outside": 14.1076115485564,
+            "museum": 17.0603674540682
+          },
+          "timestamp": 1769327496465,
+          "time_iso": "2026-01-25T07:51:36.465Z"
+        }
+      ],
+      "door_snapshot": {
+        "entry_lobby": {
+          "distance": 14.1076115485564,
+          "rssi": -53,
+          "timestamp": 1769327460468,
+          "age_ms": 43416
+        },
+        "entry_outside": {
+          "distance": 14.1076115485564,
+          "rssi": -53,
+          "timestamp": 1769327496465,
+          "age_ms": 7419
+        },
+        "museum": {
+          "distance": 17.0603674540682,
+          "rssi": -54,
+          "timestamp": 1769327483466,
+          "age_ms": 20418
+        }
+      },
+      "lobby_snapshot": {
+        "entry_lobby": 8.20209973753281,
+        "entry_outside": 14.1076115485564,
+        "museum": 17.0603674540682
+      },
+      "timestamp": 1769327508467,
+      "time_iso": "2026-01-25T07:51:48.467Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "open",
+      "source_timestamp": "2026-01-25T02:52:02.925171-05:00",
+      "distance_snapshot": {
+        "9": {
+          "entry_outside": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327496465,
+            "age_ms": 26462
+          },
+          "museum": {
+            "distance": 17.0603674540682,
+            "rssi": -54,
+            "timestamp": 1769327483466,
+            "age_ms": 39461
+          },
+          "entry_lobby": {
+            "distance": 8.20209973753281,
+            "rssi": -48,
+            "timestamp": 1769327508466,
+            "age_ms": 14461
+          }
+        }
+      },
+      "timestamp": 1769327522927,
+      "time_iso": "2026-01-25T07:52:02.927Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "entry_outside",
+      "original_room": "entry_outside",
+      "distance": 14.1076115485564,
+      "rssi": -53,
+      "all_distances": {
+        "entry_lobby": 8.20209973753281,
+        "entry_outside": 14.1076115485564
+      },
+      "timestamp": 1769327525467,
+      "time_iso": "2026-01-25T07:52:05.467Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "closed",
+      "source_timestamp": "2026-01-25T02:52:08.548414-05:00",
+      "distance_snapshot": {
+        "9": {
+          "entry_outside": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327525467,
+            "age_ms": 3084
+          },
+          "entry_lobby": {
+            "distance": 8.20209973753281,
+            "rssi": -48,
+            "timestamp": 1769327508466,
+            "age_ms": 20085
+          }
+        }
+      },
+      "timestamp": 1769327528551,
+      "time_iso": "2026-01-25T07:52:08.551Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "open",
+      "source_timestamp": "2026-01-25T02:52:35.541828-05:00",
+      "distance_snapshot": {
+        "9": {
+          "entry_outside": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327525467,
+            "age_ms": 30084
+          }
+        }
+      },
+      "timestamp": 1769327555551,
+      "time_iso": "2026-01-25T07:52:35.551Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "museum",
+      "original_room": "museum",
+      "distance": 8.85826771653544,
+      "rssi": -49,
+      "all_distances": {
+        "museum": 8.85826771653544
+      },
+      "timestamp": 1769327557466,
+      "time_iso": "2026-01-25T07:52:37.466Z"
+    },
+    {
+      "type": "door",
+      "door_id": "front_door",
+      "state": "closed",
+      "source_timestamp": "2026-01-25T02:52:39.463479-05:00",
+      "distance_snapshot": {
+        "9": {
+          "entry_outside": {
+            "distance": 14.1076115485564,
+            "rssi": -53,
+            "timestamp": 1769327525467,
+            "age_ms": 33998
+          },
+          "museum": {
+            "distance": 8.85826771653544,
+            "rssi": -49,
+            "timestamp": 1769327557466,
+            "age_ms": 1999
+          }
+        }
+      },
+      "timestamp": 1769327559465,
+      "time_iso": "2026-01-25T07:52:39.465Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "cafe",
+      "original_room": "cafe",
+      "distance": 30.5118110236221,
+      "rssi": -57,
+      "all_distances": {
+        "cafe": 30.5118110236221,
+        "museum": 8.85826771653544
+      },
+      "timestamp": 1769327572471,
+      "time_iso": "2026-01-25T07:52:52.471Z"
+    },
+    {
+      "type": "ble_proximity",
+      "beacon_id": 1,
+      "mac_address": "DD:88:00:00:12:EE",
+      "user_id": 9,
+      "room_id": "bubble_room",
+      "original_room": "bubble_room",
+      "distance": 20.6692913385827,
+      "rssi": -56,
+      "all_distances": {
+        "bubble_room": 20.6692913385827,
+        "cafe": 30.5118110236221,
+        "museum": 8.85826771653544
+      },
+      "timestamp": 1769327580465,
+      "time_iso": "2026-01-25T07:53:00.465Z"
+    }
+  ]
+}

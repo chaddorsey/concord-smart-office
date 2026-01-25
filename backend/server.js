@@ -2927,6 +2927,76 @@ app.post('/api/ble/room-update', (req, res) => {
       }
     }
 
+    // Entry detection: log BLE proximity for entry-relevant rooms
+    // Includes entry zones + adjacent rooms for rich analysis data
+    if (ENTRY_RELEVANT_ROOMS.includes(finalRoomId) || ENTRY_RELEVANT_ROOMS.includes(roomId)) {
+      // Get all current distances from the proxy cache for context
+      const allDistances = beacon.mac_address ? getRecentDistances(beacon.mac_address) : {};
+
+      logEntryEvent({
+        type: 'ble_proximity',
+        beacon_id: beacon.id,
+        mac_address: mac_address,
+        user_id: beacon.claimed_by_user_id || null,
+        room_id: finalRoomId,
+        original_room: roomId,
+        distance: distance,
+        rssi: effectiveRssi,
+        proxy_id: proxyId,
+        all_distances: allDistances  // distances from all proxies for ML training
+      });
+
+      // Direction-aware entry detection
+      if (beacon.claimed_by_user_id) {
+        const userId = beacon.claimed_by_user_id;
+        const now = Date.now();
+        const currentZone = getEntryZone(finalRoomId);
+
+        // Check if user arrived in LOBBY and has a pending entry
+        if (currentZone === 'lobby') {
+          cleanupPendingEntries();
+          const pending = pendingEntries.get(userId);
+
+          if (pending) {
+            // CONFIRMED ENTRY: user was outside, door opened, now in lobby
+            const outsideEvent = pending.outsideEvent;
+            const doorToLobby = now - pending.doorOpenTime;
+            const totalTransit = now - outsideEvent.timestamp;
+
+            console.log(`[ENTRY] ✓ CONFIRMED: user=${userId} entered via ${pending.door_id}`);
+            console.log(`[ENTRY]   Outside @ ${outsideEvent.distance?.toFixed(1)}ft → Door → Lobby @ ${distance?.toFixed(1)}ft`);
+            console.log(`[ENTRY]   Transit: ${totalTransit}ms total, ${doorToLobby}ms door-to-lobby`);
+
+            // Rich entry confirmation with full context for analysis
+            logEntryEvent({
+              type: 'entry_confirmed',
+              user_id: userId,
+              beacon_id: beacon.id,
+              door_id: pending.door_id,
+              // Distance data
+              outside_distance: outsideEvent.distance,
+              outside_rssi: outsideEvent.rssi,
+              lobby_distance: distance,
+              lobby_rssi: effectiveRssi,
+              // Timing data
+              total_transit_ms: totalTransit,
+              door_to_lobby_ms: doorToLobby,
+              outside_to_door_ms: pending.doorOpenTime - outsideEvent.timestamp,
+              // Context for ML training
+              ble_context: pending.bleContext,           // sequence of BLE events before door
+              door_snapshot: pending.distanceSnapshot,   // distances at door open time
+              lobby_snapshot: allDistances               // distances at lobby confirmation
+            });
+
+            // Clear pending entry
+            pendingEntries.delete(userId);
+
+            // TODO: Trigger auto check-in here
+          }
+        }
+      }
+    }
+
     res.json({ success: true, beacon_id: beacon.id, room_id: finalRoomId });
   } catch (error) {
     console.error('Failed to process BLE room update:', error);
@@ -2968,6 +3038,214 @@ app.post('/api/ble/heartbeat', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ============================================================================
+// Entry Detection Routes (door + BLE pattern matching)
+// ============================================================================
+//
+// Rich event logging for entry detection with distance/RSSI data from all proxies.
+// Captures comprehensive data for future ML-based refinement.
+//
+// Entry detection logic:
+//   1. Log ALL BLE events near entry (entry zones + adjacent rooms like Museum, Cafe)
+//   2. When door opens, scan recent BLE history for users who were OUTSIDE
+//   3. When BLE detects user in LOBBY after door opened, confirm ENTRY
+//   4. Use historical BLE events (not just current zone) to handle signal bleed
+// ============================================================================
+
+// In-memory event log for pattern analysis (last 5 minutes of events)
+const entryEventLog = [];
+const ENTRY_EVENT_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Track pending entries (users who showed outside proximity before door opened)
+// Key: user_id, Value: { door_id, doorOpenTime, outsideEvents: [...], allDistances: {...} }
+const pendingEntries = new Map();
+
+// Timing constants
+const PENDING_ENTRY_TTL = 30000;      // 30 seconds to complete entry after door opens
+const OUTSIDE_LOOKBACK = 45000;       // Look back 45 seconds for "outside" evidence
+const LOBBY_CONFIRM_WINDOW = 30000;   // 30 seconds after door to confirm lobby arrival
+
+// Rooms relevant to entry detection (for rich logging)
+const ENTRY_RELEVANT_ROOMS = [
+  'entry', 'entry_lobby', 'entry_outside',  // Entry zones
+  'museum', 'cafe',                          // Adjacent rooms
+  'bubble_room', 'bubble'                    // Nearby
+];
+
+function cleanupEntryEventLog() {
+  const cutoff = Date.now() - ENTRY_EVENT_TTL;
+  while (entryEventLog.length > 0 && entryEventLog[0].timestamp < cutoff) {
+    entryEventLog.shift();
+  }
+}
+
+function cleanupPendingEntries() {
+  const cutoff = Date.now() - PENDING_ENTRY_TTL;
+  for (const [userId, data] of pendingEntries.entries()) {
+    if (data.doorOpenTime < cutoff) {
+      console.log(`[ENTRY] Pending entry expired for user=${userId}`);
+      pendingEntries.delete(userId);
+    }
+  }
+}
+
+function logEntryEvent(event) {
+  cleanupEntryEventLog();
+  event.timestamp = Date.now();
+  event.time_iso = new Date().toISOString();
+  entryEventLog.push(event);
+
+  // Concise logging for BLE events, verbose for others
+  if (event.type === 'ble_proximity') {
+    const zone = getEntryZone(event.room_id);
+    const zoneLabel = zone ? zone.toUpperCase() : event.room_id;
+    console.log(`[ENTRY-LOG] BLE: user=${event.user_id} ${zoneLabel} @ ${event.distance?.toFixed(1)}ft (rssi=${event.rssi || 'n/a'})`);
+  } else {
+    console.log(`[ENTRY-LOG] ${event.type}: ${JSON.stringify(event)}`);
+  }
+}
+
+// Determine entry zone from room_id
+function getEntryZone(roomId) {
+  if (roomId === 'entry_outside') return 'outside';
+  if (roomId === 'entry_lobby' || roomId === 'entry') return 'lobby';
+  return null;
+}
+
+// Find recent BLE events for a user in a specific zone
+function findRecentZoneEvents(userId, zone, maxAge) {
+  const cutoff = Date.now() - maxAge;
+  return entryEventLog.filter(e =>
+    e.type === 'ble_proximity' &&
+    e.user_id === userId &&
+    getEntryZone(e.room_id) === zone &&
+    e.timestamp >= cutoff
+  ).sort((a, b) => b.timestamp - a.timestamp);
+}
+
+// Get all recent BLE events for a user (for context)
+function getRecentBleContext(userId, maxAge = 30000) {
+  const cutoff = Date.now() - maxAge;
+  return entryEventLog.filter(e =>
+    e.type === 'ble_proximity' &&
+    e.user_id === userId &&
+    e.timestamp >= cutoff
+  ).sort((a, b) => a.timestamp - b.timestamp);  // chronological
+}
+
+// Build a distance snapshot from recent events
+function buildDistanceSnapshot(userId, maxAge = 10000) {
+  const cutoff = Date.now() - maxAge;
+  const snapshot = {};
+
+  // Get most recent reading from each room
+  for (const event of entryEventLog) {
+    if (event.type === 'ble_proximity' &&
+        event.user_id === userId &&
+        event.timestamp >= cutoff) {
+      const room = event.room_id;
+      if (!snapshot[room] || event.timestamp > snapshot[room].timestamp) {
+        snapshot[room] = {
+          distance: event.distance,
+          rssi: event.rssi,
+          timestamp: event.timestamp,
+          age_ms: Date.now() - event.timestamp
+        };
+      }
+    }
+  }
+  return snapshot;
+}
+
+// POST /api/entry/door-event - Door sensor state change
+app.post('/api/entry/door-event', (req, res) => {
+  try {
+    const { door_id, state, timestamp } = req.body;
+
+    // Capture distance snapshot at door event time
+    const distanceSnapshot = {};
+    const usersSeen = new Set();
+
+    // Find all users with recent BLE activity
+    const cutoff = Date.now() - OUTSIDE_LOOKBACK;
+    for (const event of entryEventLog) {
+      if (event.type === 'ble_proximity' && event.user_id && event.timestamp >= cutoff) {
+        usersSeen.add(event.user_id);
+      }
+    }
+
+    // Build snapshot for each user
+    for (const userId of usersSeen) {
+      distanceSnapshot[userId] = buildDistanceSnapshot(userId, OUTSIDE_LOOKBACK);
+    }
+
+    logEntryEvent({
+      type: 'door',
+      door_id,
+      state,
+      source_timestamp: timestamp,
+      distance_snapshot: distanceSnapshot
+    });
+
+    const now = Date.now();
+    cleanupPendingEntries();
+
+    if (state === 'open') {
+      // Scan recent BLE history for users who were OUTSIDE
+      // Simple rule: if seen outside in lookback window, they're an entry candidate
+      // Lobby readings before door open are expected (signal bleed as they approach)
+      for (const userId of usersSeen) {
+        const outsideEvents = findRecentZoneEvents(userId, 'outside', OUTSIDE_LOOKBACK);
+        const lobbyEvents = findRecentZoneEvents(userId, 'lobby', OUTSIDE_LOOKBACK);
+
+        if (outsideEvents.length > 0) {
+          const latestOutside = outsideEvents[0];
+          const latestLobby = lobbyEvents.length > 0 ? lobbyEvents[0] : null;
+          const outsideDistance = latestOutside.distance || 999;
+          const lobbyDistance = latestLobby?.distance || 999;
+
+          // Entry candidate: was seen outside at any point in lookback window
+          // Don't filter out based on lobby readings - signal bleed is expected
+          const context = getRecentBleContext(userId, OUTSIDE_LOOKBACK);
+          const snapshot = buildDistanceSnapshot(userId, OUTSIDE_LOOKBACK);
+
+          pendingEntries.set(userId, {
+            door_id,
+            doorOpenTime: now,
+            outsideEvent: latestOutside,
+            lobbyEvent: latestLobby,
+            bleContext: context,
+            distanceSnapshot: snapshot
+          });
+
+          const outsideAge = ((now - latestOutside.timestamp) / 1000).toFixed(1);
+          console.log(`[ENTRY] Pending entry: user=${userId} was outside@${outsideDistance.toFixed(1)}ft (${outsideAge}s ago)` +
+            (latestLobby ? ` [also lobby@${lobbyDistance.toFixed(1)}ft - signal bleed expected]` : ''));
+        }
+      }
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Failed to process door event:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/entry/log - Get recent entry events for pattern analysis
+app.get('/api/entry/log', (req, res) => {
+  try {
+    cleanupEntryEventLog();
+    res.json({ events: entryEventLog });
+  } catch (error) {
+    console.error('Failed to get entry log:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Also log BLE events to entry log for pattern correlation
+// (Hook into existing BLE room update by adding to entryEventLog)
 
 // ============================================================================
 // Notification Routes

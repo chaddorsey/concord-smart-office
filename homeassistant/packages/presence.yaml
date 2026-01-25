@@ -493,6 +493,13 @@ rest_command:
     content_type: "application/json"
     payload: '{"mac_address": "{{ mac_address }}", "roomId": "{{ room_id }}", "distance": {{ distance | default(0) }}}'
 
+  # Send door sensor events to backend for entry pattern detection
+  door_event:
+    url: "http://backend:3001/api/entry/door-event"
+    method: POST
+    content_type: "application/json"
+    payload: '{"door_id": "{{ door_id }}", "state": "{{ state }}", "timestamp": "{{ timestamp }}"}'
+
 # ============================================================================
 # AUTOMATIONS - BLE Room Tracking
 # ============================================================================
@@ -528,4 +535,24 @@ automation:
       - service: system_log.write
         data:
           message: "BLE room update: {{ trigger.event.data.new_state.attributes.current_mac }} -> {{ trigger.event.data.new_state.state }} ({{ distance_value }} ft)"
+          level: info
+
+  # Door sensor event tracking for entry pattern detection
+  - id: door_event_tracking
+    alias: "Entry: Track Door Events"
+    description: "Send door open/close events to backend for entry pattern detection"
+    mode: parallel
+    max: 5
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.third_reality_inc_3rds17bz
+    action:
+      - service: rest_command.door_event
+        data:
+          door_id: "front_door"
+          state: "{{ 'open' if trigger.to_state.state == 'on' else 'closed' }}"
+          timestamp: "{{ now().isoformat() }}"
+      - service: system_log.write
+        data:
+          message: "Door event: front_door {{ 'opened' if trigger.to_state.state == 'on' else 'closed' }}"
           level: info
